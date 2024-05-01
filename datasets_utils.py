@@ -155,7 +155,13 @@ def load_arff_dataset(datasets_path, dataset_name, train_size=None, scaler=None)
         data, meta = loadarff(file_path)
         X, y = [], []
         for row in data:
-            x, label = row
+            try:
+                x, label = row
+            except ValueError:
+                # univariate data
+                row = row.tolist()
+                x = np.array(row[:-1]).reshape(1, -1)
+                label = row[-1]
             X.append(np.array(x.tolist(), dtype='float32'))
             y.append(label)
         return np.nan_to_num(np.stack(X, axis=0), 0), np.stack(y, axis=0)
@@ -207,14 +213,33 @@ def ds_load(datasets_path, ds_or_lst, train_size=None, scaler=None, get_info=Fal
         return results
 
 
-def ds_get_info(ds_or_lst=None) -> Union[List[DSInfo], DSInfo]:
+def ds_get_info(ds_or_lst=None, multi=True, uni=False) -> Union[List[DSInfo], DSInfo]:
     ds_names = ds_or_lst
     if not isinstance(ds_names, (list, tuple)) and ds_names:
         ds_names = [ds_names]
+    if ds_names:
+        multi = True
+        uni = True
 
-    datasets_info = pd.read_csv('DataDimensionsPipe.csv', delimiter='|', index_col=0)
-    datasets_info.loc['PhonemeSpectra'] = datasets_info.loc['Phoneme']
-    datasets_info = datasets_info.drop('Phoneme').sort_index()
+    if multi:
+        datasets_info = pd.read_csv('MvUEADataDimensionsPipe.csv', delimiter='|', index_col=0)
+        datasets_info.loc['PhonemeSpectra'] = datasets_info.loc['Phoneme']
+        datasets_info = datasets_info.drop('Phoneme').sort_index()
+
+    if uni:
+        uni_info = pd.read_csv('UvUEADataDimensions.csv', index_col=0)
+        for (old_name, new_name) in [('NonInvasiveFatalECGThorax1', 'NonInvasiveFetalECGThorax1'),
+                                     ('NonInvasiveFatalECGThorax2', 'NonInvasiveFetalECGThorax2'),
+                                     ('MixedShapes', 'MixedShapesRegularTrain')]:
+            uni_info.loc[new_name] = uni_info.loc[old_name]
+            uni_info = uni_info.drop(old_name)
+        uni_info = uni_info.sort_index()
+        if multi:
+            datasets_info = pd.concat([datasets_info, uni_info], axis=0)
+            datasets_info = datasets_info.sort_index()
+        else:
+            datasets_info = uni_info
+
     if ds_names:
         datasets_info = datasets_info.loc[ds_names]
 

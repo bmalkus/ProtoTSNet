@@ -397,7 +397,12 @@ class ProtoTSNetTrainer:
 
     def _set_epoch_type(self, epoch_type: EpochType):
         self.curr_epoch_type = epoch_type
-        self.ptsnet.features.set_requires_grad(epoch_type in [EpochType.JOINT])
+        try:
+            self.ptsnet.features.set_requires_grad(epoch_type in [EpochType.JOINT])
+        except Exception:
+            self.log('Warning: set_requires_grad() method failed, setting requires_grad manually', display=False)
+            for p in self.ptsnet.features.parameters():
+                p.requires_grad = epoch_type in [EpochType.JOINT]
         for p in self.ptsnet.add_on_layers.parameters():
             p.requires_grad = epoch_type in [EpochType.JOINT, epoch_type.WARM]
         self.ptsnet.prototype_vectors.requires_grad = epoch_type in [EpochType.JOINT, epoch_type.WARM]
