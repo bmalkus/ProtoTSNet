@@ -266,20 +266,20 @@ class ProtoTSNetTrainer:
         self.optimizers[EpochType.WARM] = torch.optim.Adam(warm_optimizer_specs)
         self.optimizers[EpochType.LAST_LAYER] = torch.optim.Adam(last_layer_optimizer_specs)
 
-        if self.val_loader is not None:
-            # patience=X refers to X JOINT epochs, not any epochs
-            self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.JOINT], mode='min', patience=30, verbose=False)
-            # patience=Y refers to Y LAST_LAYER epochs, not any epochs
-            self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.LAST_LAYER], mode='min', patience=60, verbose=False)
+        # if self.val_loader is not None:
+        #     # patience=X refers to X JOINT epochs, not any epochs
+        #     self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.JOINT], mode='min', patience=30, verbose=False)
+        #     # patience=Y refers to Y LAST_LAYER epochs, not any epochs
+        #     self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.LAST_LAYER], mode='min', patience=60, verbose=False)
             
-            # Workaround for https://github.com/pytorch/pytorch/issues/106767 - we need _last_lr to be initialized
-            self.lr_schedulers[EpochType.JOINT].step(float('inf'))
-            self.lr_schedulers[EpochType.JOINT]._reset()
-            self.lr_schedulers[EpochType.LAST_LAYER].step(float('inf'))
-            self.lr_schedulers[EpochType.LAST_LAYER]._reset()
-        else:
-            self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.JOINT], base_lr=1e-4, max_lr=3e-2, step_size_up=10, step_size_down=20, mode='exp_range', gamma=0.99, cycle_momentum=False)
-            self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.LAST_LAYER], base_lr=1e-4, max_lr=1e-2, step_size_up=15, step_size_down=25, mode='exp_range', gamma=1, cycle_momentum=False)
+        #     # Workaround for https://github.com/pytorch/pytorch/issues/106767 - we need _last_lr to be initialized
+        #     self.lr_schedulers[EpochType.JOINT].step(float('inf'))
+        #     self.lr_schedulers[EpochType.JOINT]._reset()
+        #     self.lr_schedulers[EpochType.LAST_LAYER].step(float('inf'))
+        #     self.lr_schedulers[EpochType.LAST_LAYER]._reset()
+        # else:
+        self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.JOINT], base_lr=1e-4, max_lr=3e-2, step_size_up=10, step_size_down=20, mode='exp_range', gamma=0.99, cycle_momentum=False)
+        self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.LAST_LAYER], base_lr=1e-4, max_lr=1e-2, step_size_up=15, step_size_down=25, mode='exp_range', gamma=1, cycle_momentum=False)
 
 
     def _add_stat(self, stat_name, value):
@@ -346,10 +346,10 @@ class ProtoTSNetTrainer:
             self._single_validation_round()
             self._single_test_round()
 
-            if self.val_loader is not None:
-                self.lr_schedulers[EpochType.JOINT].step(self.latest_stat('loss_val'))
-            else:
-                self.lr_schedulers[EpochType.JOINT].step()
+            # if self.val_loader is not None:
+                # self.lr_schedulers[EpochType.JOINT].step(self.latest_stat('loss_val'))
+            # else:
+            self.lr_schedulers[EpochType.JOINT].step()
 
     def _push_protos(self):
         self.curr_true_epoch += 1
@@ -388,10 +388,10 @@ class ProtoTSNetTrainer:
                 self._single_validation_round()
                 self._single_test_round()
 
-                if self.val_loader is not None:
-                    self.lr_schedulers[EpochType.LAST_LAYER].step(self.latest_stat('loss_val'))
-                else:
-                    self.lr_schedulers[EpochType.LAST_LAYER].step()
+                # if self.val_loader is not None:
+                    # self.lr_schedulers[EpochType.LAST_LAYER].step(self.latest_stat('loss_val'))
+                # else:
+                self.lr_schedulers[EpochType.LAST_LAYER].step()
 
             self._call_checkpointers()
 

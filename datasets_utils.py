@@ -135,18 +135,20 @@ class ArtificialProtosMoreFeatures():
         return self.data[idx]
 
 
-def transform_ts_data(X, scaler):
-    for i in range(X.shape[1]):
-        X[:, i, :] = scaler.fit_transform(X[:, i, :])
-    return X
-    # original_shape = X.shape
-    # X = X.reshape(-1, original_shape[2])
-    # X = scaler.fit_transform(X)
-    # X = X.reshape(original_shape)
-    # return X
+def transform_ts_data(X, scaler, scale_separately=True):
+    if scale_separately:
+        for i in range(X.shape[1]):
+            X[:, i, :] = scaler.fit_transform(X[:, i, :])
+        return X
+    else:
+        original_shape = X.shape
+        X = X.reshape(-1, original_shape[2])
+        X = scaler.fit_transform(X)
+        X = X.reshape(original_shape)
+        return X
 
 
-def load_arff_dataset(datasets_path, dataset_name, train_size=None, scaler=None):
+def load_arff_dataset(datasets_path, dataset_name, train_size=None, val_size=None, scaler=None, scale_separately=True):
     train_file = datasets_path / dataset_name / f'{dataset_name}_TRAIN.arff'
     test_file = datasets_path / dataset_name / f'{dataset_name}_TEST.arff'
     label_encoder = LabelEncoder()
@@ -173,17 +175,20 @@ def load_arff_dataset(datasets_path, dataset_name, train_size=None, scaler=None)
         y = label_encoder.fit_transform(y)
         trainX, testX, trainy, testy = train_test_split(X, y, train_size=train_size)
 
+    if val_size:
+        trainX, valX, trainy, valy = train_test_split(trainX, trainy, test_size=val_size)
+
     if scaler:
-        transform_ts_data(trainX, scaler)
-        transform_ts_data(testX, scaler)
+        trainX = transform_ts_data(trainX, scaler, scale_separately)
+        testX = transform_ts_data(testX, scaler, scale_separately)
 
-    return TrainTestDS(dataset_name, TSCDataset(trainX, trainy), TSCDataset(testX, testy))
+    return TrainTestDS(dataset_name, TSCDataset(trainX, trainy), TSCDataset(testX, testy), TSCDataset(valX, valy) if val_size else None)
 
 
-def ds_load(datasets_path, ds_or_lst, train_size=None, scaler=None, get_info=False) -> Union[TrainTestDS, Dict[str, TrainTestDS]]:
+def ds_load(datasets_path, ds_or_lst, train_size=None, val_size=None, scaler=None, scale_separately=True, get_info=False) -> Union[TrainTestDS, Dict[str, TrainTestDS]]:
     # scaler is assumed to reset its state when calling fit_transform/fit
     def load_ds(ds):
-        return (ds, load_arff_dataset(datasets_path, ds, train_size, scaler))
+        return (ds, load_arff_dataset(datasets_path, ds, train_size, val_size, scaler, scale_separately))
 
     ds_names = ds_or_lst
     if not isinstance(ds_names, (list, tuple)):
