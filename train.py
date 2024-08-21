@@ -1,38 +1,44 @@
-from train_utils import EarlyStopping, EpochType
-import torch
-import time
+import json
 import os
-
+import shutil
+import time
 from collections import defaultdict, namedtuple
+from contextlib import contextmanager
+from pathlib import Path
 
 import push
-
-import json
-
-from torch.utils.data import DataLoader
-
-from pathlib import Path
-import os
 import torch
-import shutil
-import model
-import json
-from datasets_utils import TrainTestDS
-from train_utils import BestModelCheckpointer
-
-from contextlib import contextmanager
+from log import create_logger
+from model import ProtoTSNet
+from torch.utils.data import DataLoader
+from train_utils import EarlyStopping, EpochType
 
 ProtoTSCoeffs = namedtuple('ProtoTSCoeffs', 'crs_ent,clst,sep,l1,l1_addon', defaults=(1,0,0,0,0))
 
 
-def train_prototsnet(dataset: TrainTestDS, experiment_dir, device,
-                     encoder, features_lr, coeffs,
-                     protos_per_class, proto_features, proto_len_latent,
-                     train_batch_size=32, test_batch_size=64,
-                     num_epochs=1000, num_warm_epochs=50, push_start_epoch=40, push_epochs=None, ds_info=None,
-                     num_last_layer_epochs=40,
-                     custom_checkpointers=None, early_stopping=None, log=print):
+def train_prototsnet(
+    ptsnet: ProtoTSNet,
+    experiment_dir,
+    device,
+    coeffs,
+    train_loader: DataLoader,
+    test_loader: DataLoader,
+    num_warm_epochs,
+    push_start_epoch,
+    push_epochs,
+    num_last_layer_epochs,
+    num_epochs=1000,
+    class_specific=True,
+    val_loader: DataLoader = None,
+    learning_rates=None,
+    features_lr=1e-3,  # effective only if learning_rates is None
+    lr_sched_setup=None,
+    custom_hooks=None,
+    early_stopper=None,
+    log=None
+):
     save_files = True if experiment_dir is not None else False
+    logclose = lambda: None
     if save_files:
         if not isinstance(experiment_dir, Path):
             experiment_dir = Path(experiment_dir)
@@ -40,86 +46,85 @@ def train_prototsnet(dataset: TrainTestDS, experiment_dir, device,
         os.makedirs(models_dir, exist_ok=True)
         proto_dir = experiment_dir / 'protos'
         os.makedirs(proto_dir, exist_ok=True)
+        if log is None:
+            log, logclose = create_logger(experiment_dir / "log.txt", display=True)
     else:
         models_dir = None
         proto_dir = None
-    
-    prototype_shape = (protos_per_class*ds_info.num_classes, proto_features, proto_len_latent)
+        log = print
 
-    prototype_activation_function = 'log'
-    
-    train_loader = torch.utils.data.DataLoader(
-        dataset.train, batch_size=train_batch_size, shuffle=True,
-        num_workers=0, pin_memory=False)
-    test_loader = torch.utils.data.DataLoader(
-        dataset.test, batch_size=test_batch_size, shuffle=False,
-        num_workers=0, pin_memory=False)
-    val_loader = None
-    if dataset.val is not None:
-        val_loader = torch.utils.data.DataLoader(
-            dataset.val, batch_size=test_batch_size, shuffle=False,
-            num_workers=0, pin_memory=False)
-        
-    # construct the model
-    ptsnet = model.construct_PPNet(cnn_base=encoder,
-                                  num_features=ds_info.features,
-                                  ts_sample_len=ds_info.ts_len,
-                                  prototype_shape=prototype_shape,
-                                  num_classes=ds_info.num_classes,
-                                  prototype_activation_function=prototype_activation_function)
-    
-    learning_rates = {
-        EpochType.JOINT: {
-            'features': features_lr,
-            'add_on_layers': 3e-3,
-            'prototype_vectors': 3e-3
-        },
-        EpochType.WARM: {
-            'add_on_layers': 3e-3,
-            'prototype_vectors': 3e-3
-        },
-        EpochType.LAST_LAYER: {
-            'add_on_layers': 1e-3
+    try:
+        learning_rates = {
+            EpochType.JOINT: {
+                'features': features_lr,
+                'add_on_layers': 3e-3,
+                'prototype_vectors': 3e-3
+            },
+            EpochType.WARM: {
+                'add_on_layers': 3e-3,
+                'prototype_vectors': 3e-3
+            },
+            EpochType.LAST_LAYER: {
+                'add_on_layers': 1e-3
+            }
         }
-    }
-    
-    if push_epochs is None:
-        push_epochs = range(0, num_epochs, 20)
-    
-    overall_best_checkpointer = BestModelCheckpointer(stat_name='cross_ent_val', mode='min', model_save_path=models_dir, model_name='overall_best')
-    push_only_best_checkpointer = BestModelCheckpointer(stat_name='cross_ent_val', mode='min', add_save_cond=lambda t, m: t.curr_epoch_type in [EpochType.PUSH, EpochType.LAST_LAYER], model_save_path=models_dir, model_name='push_best')
-    trainer = ProtoTSNetTrainer(
-        ptsnet,
-        device,
-        train_loader, test_loader, val_loader,
-        num_epochs=num_epochs,
-        num_warm_epochs=num_warm_epochs,
-        push_start_epoch=push_start_epoch,
-        push_epochs=push_epochs,
-        coeffs=coeffs,
-        learning_rates=learning_rates,
-        num_last_layer_epochs=num_last_layer_epochs,
-        proto_save_dir=proto_dir,
-        early_stopping=early_stopping,
-        model_checkpointers=[
-            overall_best_checkpointer if save_files and dataset.val is not None else lambda t,_: None,
-            push_only_best_checkpointer if save_files and dataset.val is not None else lambda t,_: None,
-            lambda t,_: t.dump_stats(experiment_dir / 'stats.json')
-        ] + ([] if custom_checkpointers is None else custom_checkpointers),
-        log=log,
-    )
-    
-    if save_files:
-        shutil.rmtree(proto_dir)
-        os.makedirs(proto_dir, exist_ok=True)
 
-    trainer.train()
-    
-    torch.save(ptsnet.state_dict(), models_dir / f'last-epoch-state-dict.pth')
-    torch.save(ptsnet, models_dir / f'last-epoch.pth')
-    trainer.dump_stats(experiment_dir / 'stats.json')
+        params = {
+            "proto_num": ptsnet.prototype_shape[0],
+            "proto_features": ptsnet.prototype_shape[1],
+            "proto_len_latent": ptsnet.prototype_shape[2],
+            "protos_per_class": ptsnet.prototype_shape[0] // ptsnet.num_classes if class_specific else None,
+            "ts_len": ptsnet.ts_sample_len,
+            "num_classes": ptsnet.num_classes,
+            "coeffs": coeffs._asdict(),
+            "num_warm_epochs": num_warm_epochs,
+            "push_start_epoch": push_start_epoch,
+            "num_last_layer_epochs": num_last_layer_epochs,
+            "epochs": num_epochs,
+            "learning_rates": str(learning_rates),
+        }
+        with open(experiment_dir / "params.json", "w") as f:
+            json.dump(params, f, indent=4)
 
-    return trainer
+        trainer = ProtoTSNetTrainer(
+            ptsnet,
+            device,
+            train_loader,
+            test_loader,
+            val_loader,
+            num_epochs=num_epochs,
+            num_warm_epochs=num_warm_epochs,
+            push_start_epoch=push_start_epoch,
+            push_epochs=push_epochs,
+            num_last_layer_epochs=num_last_layer_epochs,
+            coeffs=coeffs,
+            learning_rates=learning_rates,
+            lr_sched_setup=lr_sched_setup,
+            class_specific=class_specific,
+            proto_save_dir=proto_dir,
+            early_stopper=early_stopper,
+            hooks=[
+                lambda t,_: t.dump_stats(experiment_dir / 'stats.json'),
+                get_verbose_logger()
+            ] + ([] if custom_hooks is None else custom_hooks),
+            log=log,
+        )
+
+        if save_files:
+            shutil.rmtree(proto_dir)
+            os.makedirs(proto_dir, exist_ok=True)
+
+        trainer.train()
+
+        if save_files:
+            torch.save(ptsnet.state_dict(), models_dir / f'last-epoch-state-dict.pth')
+            torch.save(ptsnet, models_dir / f'last-epoch.pth')
+            trainer.dump_stats(experiment_dir / 'stats.json')
+
+        return trainer
+    finally:
+        logclose()
+
 
 def best_stat_saver(stat_name, file_path, mode='min'):
     best = None
@@ -150,11 +155,11 @@ def best_stat_saver(stat_name, file_path, mode='min'):
     return save_best_stat
 
 
-def get_verbose_logger(dataset_name):
+def get_verbose_logger():
     def verbose_log_epoch(t: ProtoTSNetTrainer, _):
         last_layer_str = f" ({t.curr_last_layer_epoch}/{t.num_last_layer_epochs})" if t.curr_epoch_type == EpochType.LAST_LAYER else ""
         if t.val_loader is not None:
-            t.log(f"epoch: {t.curr_epoch:3d}{last_layer_str} ({t.curr_epoch_type.name}) - {dataset_name}")
+            t.log(f"epoch: {t.curr_epoch:3d}{last_layer_str} ({t.curr_epoch_type.name})")
             t.log(f"    {'val acc:':25s} {t.latest_stat('accu_val')*100:.2f}%")
             t.log(f"    {'train overall loss:':25s} {t.latest_stat('loss_train')}")
             t.log(f"    {'train cross_ent loss:':25s} {t.latest_stat('cross_ent_train')}")
@@ -179,17 +184,17 @@ def get_verbose_logger(dataset_name):
                 t.log(f"    {'test cross_ent loss:':25s} {t.latest_stat('cross_ent_test')}")
                 t.log(f"    {'test time:':25s} {t.latest_stat('time_test')}")
         else:
-            t.log(f"epoch: {t.curr_epoch:3d}{last_layer_str} ({t.curr_epoch_type.name}) - {dataset_name}")
+            t.log(f"epoch: {t.curr_epoch:3d}{last_layer_str} ({t.curr_epoch_type.name})")
             t.log(f"    {'test acc:':25s} {t.latest_stat('accu_test')*100:.2f}%")
             t.log(f"    {'train overall loss:':25s} {t.latest_stat('loss_train')}")
             t.log(f"    {'train cross_ent loss:':25s} {t.latest_stat('cross_ent_train')}")
+            t.log(f"    {'train cluster loss:':25s} {t.latest_stat('cluster_train')}")
+            t.log(f"    {'train separation loss:':25s} {t.latest_stat('separation_train')}")
+            t.log(f"    {'train avg separation loss:':25s} {t.latest_stat('avg_separation_train')}")
+            t.log(f"    {'train l1_addon loss:':25s} {t.latest_stat('l1_addon_train')}")
+            t.log(f"    {'train l1 loss:':25s} {t.latest_stat('l1_train')}")
             t.log(f"    {'test overall loss:':25s} {t.latest_stat('loss_test')}")
             t.log(f"    {'test cross_ent loss:':25s} {t.latest_stat('cross_ent_test')}")
-            t.log(f"    {'cluster loss:':25s} {t.latest_stat('cluster_test')}")
-            t.log(f"    {'separation loss:':25s} {t.latest_stat('separation_test')}")
-            t.log(f"    {'avg separation loss:':25s} {t.latest_stat('avg_separation_test')}")
-            t.log(f"    {'l1_addon loss:':25s} {t.latest_stat('l1_addon_test')}")
-            t.log(f"    {'l1 loss:':25s} {t.latest_stat('l1_test')}")
             t.log(f"    {'train time:':25s} {t.latest_stat('time_train')}")
             t.log(f"    {'test time:':25s} {t.latest_stat('time_test')}")
             t.log(f"    {'epoch time:':25s} {t.latest_stat('epoch_time')}", flush=True)
@@ -201,12 +206,32 @@ def get_verbose_logger(dataset_name):
 
 
 class ProtoTSNetTrainer:
-    def __init__(self, ptsnet, device, train_loader: DataLoader, test_loader: DataLoader, val_loader: DataLoader, num_epochs, num_warm_epochs, push_start_epoch, push_epochs, coeffs: ProtoTSCoeffs, learning_rates, num_last_layer_epochs=20, proto_save_dir=None, early_stopping=None, model_checkpointers=None, log=print):
+    def __init__(
+        self,
+        ptsnet,
+        device,
+        train_loader: DataLoader,
+        test_loader: DataLoader,
+        val_loader: DataLoader,
+        num_epochs,
+        num_warm_epochs,
+        push_start_epoch,
+        push_epochs,
+        num_last_layer_epochs,
+        coeffs: ProtoTSCoeffs,
+        learning_rates,
+        lr_sched_setup=None,
+        class_specific=True,
+        proto_save_dir=None,
+        early_stopper=None,
+        hooks=None,
+        log=print,
+    ):
         self.ptsnet = ptsnet
         self.device = device
         self.ptsnet.to(self.device)
 
-        self.class_specific = True
+        self.class_specific = class_specific
 
         self.train_loader = train_loader
         self.test_loader = test_loader
@@ -216,13 +241,13 @@ class ProtoTSNetTrainer:
         self.lr_schedulers = {}
 
         self.proto_save_dir = proto_save_dir
-        
-        self.early_stopping = early_stopping
 
-        self.model_checkpointers = model_checkpointers
-        if self.model_checkpointers is None:
-            self.model_checkpointers = []
-    
+        self.early_stopper = early_stopper
+
+        self.hooks = hooks
+        if self.hooks is None:
+            self.hooks = []
+
         self.num_train_epochs = num_epochs
         self.num_warm_epochs = num_warm_epochs
         self.push_start = push_start_epoch
@@ -234,53 +259,41 @@ class ProtoTSNetTrainer:
         self.logged_push_condition_met = False
         self.push_epochs = push_epochs
         self.num_last_layer_epochs = num_last_layer_epochs
-        
+
         self.coeffs = coeffs._asdict()
-        
+
         self._stats = defaultdict(list)
         self.curr_epoch_type = None
         self.curr_epoch = 1
         self.curr_last_layer_epoch = 1
         self.curr_true_epoch = 1
         self.run_type_str = None  # 'train', 'test', 'val'
-        
+
         self.log = log
-        
-        self._setup_optimizers(learning_rates)
-    
-    def _setup_optimizers(self, learning_rates):
+
+        self._setup_optimizers(learning_rates, lr_sched_setup)
+
+    def _setup_optimizers(self, learning_rates, lr_sched_setup):
+        warm_optimizer_specs = [
+            {'params': self.ptsnet.add_on_layers.parameters(), 'lr': learning_rates[EpochType.WARM]['add_on_layers']},
+            {'params': self.ptsnet.prototype_vectors, 'lr': learning_rates[EpochType.WARM]['prototype_vectors']},
+        ]
         joint_optimizer_specs = [
             {'params': self.ptsnet.features.parameters(), 'lr': learning_rates[EpochType.JOINT]['features']},
             {'params': self.ptsnet.add_on_layers.parameters(), 'lr': learning_rates[EpochType.JOINT]['add_on_layers']},
             {'params': self.ptsnet.prototype_vectors, 'lr': learning_rates[EpochType.JOINT]['prototype_vectors']},
         ]
-        warm_optimizer_specs = [
-            {'params': self.ptsnet.add_on_layers.parameters(), 'lr': learning_rates[EpochType.WARM]['add_on_layers']},
-            {'params': self.ptsnet.prototype_vectors, 'lr': learning_rates[EpochType.WARM]['prototype_vectors']},
-        ]
         last_layer_optimizer_specs = [
             {'params': self.ptsnet.last_layer.parameters(), 'lr': learning_rates[EpochType.LAST_LAYER]['add_on_layers']}
         ]
 
-        self.optimizers[EpochType.JOINT] = torch.optim.Adam(joint_optimizer_specs)
         self.optimizers[EpochType.WARM] = torch.optim.Adam(warm_optimizer_specs)
+        self.optimizers[EpochType.JOINT] = torch.optim.Adam(joint_optimizer_specs)
         self.optimizers[EpochType.LAST_LAYER] = torch.optim.Adam(last_layer_optimizer_specs)
 
-        # if self.val_loader is not None:
-        #     # patience=X refers to X JOINT epochs, not any epochs
-        #     self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.JOINT], mode='min', patience=30, verbose=False)
-        #     # patience=Y refers to Y LAST_LAYER epochs, not any epochs
-        #     self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizers[EpochType.LAST_LAYER], mode='min', patience=60, verbose=False)
-            
-        #     # Workaround for https://github.com/pytorch/pytorch/issues/106767 - we need _last_lr to be initialized
-        #     self.lr_schedulers[EpochType.JOINT].step(float('inf'))
-        #     self.lr_schedulers[EpochType.JOINT]._reset()
-        #     self.lr_schedulers[EpochType.LAST_LAYER].step(float('inf'))
-        #     self.lr_schedulers[EpochType.LAST_LAYER]._reset()
-        # else:
-        self.lr_schedulers[EpochType.JOINT] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.JOINT], base_lr=1e-4, max_lr=3e-2, step_size_up=10, step_size_down=20, mode='exp_range', gamma=0.99, cycle_momentum=False)
-        self.lr_schedulers[EpochType.LAST_LAYER] = torch.optim.lr_scheduler.CyclicLR(self.optimizers[EpochType.LAST_LAYER], base_lr=1e-4, max_lr=1e-2, step_size_up=15, step_size_down=25, mode='exp_range', gamma=1, cycle_momentum=False)
-
+        self.lr_schedulers[EpochType.WARM] = lr_sched_setup(self.optimizers[EpochType.WARM], EpochType.WARM)
+        self.lr_schedulers[EpochType.JOINT] = lr_sched_setup(self.optimizers[EpochType.JOINT], EpochType.JOINT)
+        self.lr_schedulers[EpochType.LAST_LAYER] = lr_sched_setup(self.optimizers[EpochType.LAST_LAYER], EpochType.LAST_LAYER)
 
     def _add_stat(self, stat_name, value):
         if self.run_type_str is not None and not stat_name.endswith(self.run_type_str):
@@ -317,9 +330,9 @@ class ProtoTSNetTrainer:
             json.dump(self._stats, f)
         os.rename(tmp_path, path)
 
-    def _call_checkpointers(self):
-        for cp in self.model_checkpointers:
-            cp(self, self.ptsnet)
+    def _call_hooks(self):
+        for hook in self.hooks:
+            hook(self, self.ptsnet)
 
     @contextmanager
     def report_epoch_summary(self):
@@ -338,6 +351,9 @@ class ProtoTSNetTrainer:
             self._single_validation_round()
             self._single_test_round()
 
+            if self.lr_schedulers[EpochType.WARM] is not None:
+                self.lr_schedulers[EpochType.WARM].step()
+
     def _joint_epoch(self):
         with self.report_epoch_summary():
             self._set_epoch_type(EpochType.JOINT)
@@ -346,10 +362,8 @@ class ProtoTSNetTrainer:
             self._single_validation_round()
             self._single_test_round()
 
-            # if self.val_loader is not None:
-                # self.lr_schedulers[EpochType.JOINT].step(self.latest_stat('loss_val'))
-            # else:
-            self.lr_schedulers[EpochType.JOINT].step()
+            if self.lr_schedulers[EpochType.JOINT] is not None:
+                self.lr_schedulers[EpochType.JOINT].step()
 
     def _push_protos(self):
         self.curr_true_epoch += 1
@@ -388,12 +402,10 @@ class ProtoTSNetTrainer:
                 self._single_validation_round()
                 self._single_test_round()
 
-                # if self.val_loader is not None:
-                    # self.lr_schedulers[EpochType.LAST_LAYER].step(self.latest_stat('loss_val'))
-                # else:
-                self.lr_schedulers[EpochType.LAST_LAYER].step()
+                if self.lr_schedulers[EpochType.LAST_LAYER] is not None:
+                    self.lr_schedulers[EpochType.LAST_LAYER].step()
 
-            self._call_checkpointers()
+            self._call_hooks()
 
     def _set_epoch_type(self, epoch_type: EpochType):
         self.curr_epoch_type = epoch_type
@@ -428,7 +440,7 @@ class ProtoTSNetTrainer:
         self.ptsnet.eval()
         self._train_or_test(self.test_loader, optimizer=None)
         self.run_type_str = None
-    
+
     def _test_round_cond(self):
         if self.val_loader is not None:
             if self.curr_epoch % 10 != 0:
@@ -453,7 +465,7 @@ class ProtoTSNetTrainer:
         for i, (image, label) in enumerate(dataloader):
             input = image.to(self.device)
             target = label.to(self.device)
-            
+
             # torch.enable_grad() has no effect outside of no_grad()
             grad_req = torch.enable_grad() if is_train else torch.no_grad()
             with grad_req:
@@ -482,13 +494,13 @@ class ProtoTSNetTrainer:
                     avg_separation_cost = \
                         torch.sum(min_distances * prototypes_of_wrong_class, dim=0) / torch.sum(prototypes_of_wrong_class, dim=0)
                     avg_separation_cost = torch.mean(avg_separation_cost)
-                    
+
                     if use_l1_mask:
                         l1_mask = 1 - torch.t(self.ptsnet.prototype_class_identity).to(self.device)
                         l1 = (self.ptsnet.last_layer.weight * l1_mask).norm(p=1)
                     else:
                         l1 = self.ptsnet.last_layer.weight.norm(p=1)
-                    
+
                     l1_addon = self.ptsnet.add_on_layers[0].weight.norm(p=1)
                 else:
                     min_distance, _ = torch.min(min_distances, dim=1)
@@ -524,7 +536,7 @@ class ProtoTSNetTrainer:
                         + self.coeffs['l1_addon'] * l1_addon)
                 else:
                     loss = cross_entropy + 0.8 * cluster_cost + 1e-4 * l1
-            
+
             total_loss += loss.item()
             if is_train:
                 optimizer.zero_grad()
@@ -561,8 +573,8 @@ class ProtoTSNetTrainer:
                 if not self.logged_push_condition_met:
                     self.log(f'First push epoch condition met at epoch {self.curr_epoch}')
                     self.logged_push_condition_met = True
-                    if self.early_stopping is not None:
-                        self.early_stopping.stop_waiting()
+                    if self.early_stopper is not None:
+                        self.early_stopper.stop_waiting()
                 return True
             return False
         return self.curr_epoch >= self.push_start
@@ -576,28 +588,27 @@ class ProtoTSNetTrainer:
     def train(self):
         self.log('Starting training')
         t_start = time.time()
-    
+
         while self.curr_epoch <= self.num_train_epochs:
             if self._warm_epoch_condition():
                 self._warm_epoch()
             else:
                 self._joint_epoch()
-            self._call_checkpointers()
-            
-        
+            self._call_hooks()
+
             if self._st_push_condition() and self.curr_epoch in self.push_epochs:
                 self.did_st_push = True
                 self._push_protos()
-                self._call_checkpointers()
-                
+                self._call_hooks()
+
                 if self.ptsnet.prototype_activation_function != 'linear':
                     self._optimize_last_layer()
 
             self.curr_epoch += 1
             self.curr_true_epoch += 1
-    
-            if self.early_stopping and self.early_stopping(self):
-                self.log(f'Validation loss did not improve in {self.early_stopping.patience} epochs, aborting')
+
+            if self.early_stopper and self.early_stopper(self):
+                self.log(f'Validation loss did not improve in {self.early_stopper.patience} epochs, aborting')
                 break
 
         t_end = time.time()

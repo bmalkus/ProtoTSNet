@@ -94,11 +94,13 @@ class PermutingConvAutoencoder(nn.Module):
         
         # Decoder
         self.decoder = nn.Sequential(
-            nn.ConvTranspose1d(latent_features, 256, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0),
+            nn.ConvTranspose1d(latent_features, 32, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0),
             nn.ReLU(),
-            nn.ConvTranspose1d(256, 256, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0),
+            nn.MaxUnpool1d(kernel_size=2),
+            nn.ConvTranspose1d(32, 32, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0),
             nn.ReLU(),
-            nn.ConvTranspose1d(256, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0)
+            nn.MaxUnpool1d(kernel_size=2),
+            nn.ConvTranspose1d(32, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0)
         )
         
     def forward(self, x):
@@ -107,17 +109,29 @@ class PermutingConvAutoencoder(nn.Module):
         decoded = self.decoder(encoded)
         return decoded, encoded
 
-    def set_requires_grad(self, requires_grad):
-        for param in self.encoder.parameters():
-            param.requires_grad = requires_grad
-
 
 class MultiEncoder(nn.Module):
     def __init__(self, num_features, masks, padding):
         super(MultiEncoder, self).__init__()
         
         self.num_branches = len(masks)
-        self.encoder = GroupedBranchEncoder(num_features, self.num_branches, padding)
+        self.encoder = nn.Sequential(
+            nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=32 * self.num_branches, 
+                      kernel_size=7, padding=padding, groups=self.num_branches),
+            nn.BatchNorm1d(32 * self.num_branches),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2),
+            nn.Conv1d(in_channels=32 * self.num_branches, out_channels=32 * self.num_branches, 
+                      kernel_size=5, padding=padding, groups=self.num_branches),
+            nn.BatchNorm1d(32 * self.num_branches),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2),
+            nn.Conv1d(in_channels=32 * self.num_branches, out_channels=self.num_branches, 
+                      kernel_size=3, padding=padding, groups=self.num_branches),
+            nn.BatchNorm1d(self.num_branches),
+            nn.ReLU(),
+            nn.MaxPool1d(kernel_size=2)
+        )
 
         self.masks = nn.Parameter(masks, requires_grad=False)
     
@@ -136,49 +150,111 @@ class MultiEncoder(nn.Module):
             param.requires_grad = requires_grad
 
 
-class GroupedBranchEncoder(nn.Module):
-    def __init__(self, num_features, num_branches, padding):
-        super(GroupedBranchEncoder, self).__init__()
+class RegularConvAutoencoder(nn.Module):
+    def __init__(self, num_features, latent_features, padding, do_max_pool=False, num_conv_filters=128):
+        super(RegularConvAutoencoder, self).__init__()
+        self.do_max_pool = do_max_pool
+        self.num_conv_filters = num_conv_filters
         
-        self.num_branches = num_branches
-
-        self.layers = nn.Sequential(
-            nn.Conv1d(in_channels=num_features * num_branches, out_channels=32 * num_branches, 
-                      kernel_size=7, padding=padding, groups=num_branches),
-            nn.BatchNorm1d(32 * num_branches),
-            nn.ReLU(),
-            nn.Conv1d(in_channels=32 * num_branches, out_channels=32 * num_branches, 
-                      kernel_size=5, padding=padding, groups=num_branches),
-            nn.BatchNorm1d(32 * num_branches),
-            nn.ReLU(),
-            nn.Conv1d(in_channels=32 * num_branches, out_channels=num_branches, 
-                      kernel_size=3, padding=padding, groups=num_branches),
-            nn.BatchNorm1d(num_branches),
-            nn.ReLU()
-        )
-    
+        self.encoder = RegularConvEncoder(num_features, latent_features, padding, do_max_pool=do_max_pool, num_conv_filters=num_conv_filters)
+        if self.do_max_pool:
+            self.decoder = nn.Sequential(
+                nn.MaxUnpool1d(kernel_size=2),
+                nn.ReLU(),
+                nn.ConvTranspose1d(latent_features, self.num_conv_filters, kernel_size=self.encoder.kernel_sizes[2], padding=1 if padding == 'same' else 0, output_padding=0),
+                nn.MaxUnpool1d(kernel_size=2),
+                nn.ConvTranspose1d(self.num_conv_filters, self.num_conv_filters, kernel_size=self.encoder.kernel_sizes[1], padding=2 if padding == 'same' else 0, output_padding=0),
+                nn.ReLU(),
+                nn.MaxUnpool1d(kernel_size=2),
+                nn.ConvTranspose1d(self.num_conv_filters, num_features, kernel_size=self.encoder.kernel_sizes[0], padding=3 if padding == 'same' else 0, output_padding=0)
+            )
+        else:
+            self.decoder = nn.Sequential(
+                nn.ConvTranspose1d(latent_features, self.num_conv_filters, kernel_size=self.encoder.kernel_sizes[2], padding=1 if padding == 'same' else 0, output_padding=0),
+                nn.ReLU(),
+                nn.ConvTranspose1d(self.num_conv_filters, self.num_conv_filters, kernel_size=self.encoder.kernel_sizes[1], padding=2 if padding == 'same' else 0, output_padding=0),
+                nn.ReLU(),
+                nn.ConvTranspose1d(self.num_conv_filters, num_features, kernel_size=self.encoder.kernel_sizes[0], padding=3 if padding == 'same' else 0, output_padding=0)
+            )
+        
     def forward(self, x):
-        return self.layers(x)
+        if self.do_max_pool:
+            encoded, indices, sizes = self.encoder(x)
+            encoded = F.dropout(encoded, p=0.3, training=self.training)
+            indices = indices[::-1]
+            sizes = sizes[::-1]
+            decoded = encoded
+            for i, layer in enumerate(self.decoder):
+                if isinstance(layer, nn.MaxUnpool1d):
+                    decoded = layer(decoded, indices[i//3], output_size=sizes[i//3])
+                else:
+                    decoded = layer(decoded)
+        else:
+            encoded = self.encoder(x)
+            encoded = F.dropout(encoded, p=0.3, training=self.training)
+            decoded = self.decoder(encoded)
+        return decoded, encoded
+
 
 class RegularConvEncoder(nn.Module):
-    def __init__(self, num_features, latent_features, padding):
+    def __init__(self, num_features, latent_features, padding, do_max_pool=False, num_conv_filters=32):
         super(RegularConvEncoder, self).__init__()
+        self.return_indices = do_max_pool
+        self.num_conv_filters = num_conv_filters
+        self.kernel_sizes = [7, 5, 3]
 
-        self.encoder = nn.Sequential(
-            nn.Conv1d(in_channels=num_features, out_channels=32, kernel_size=7, padding=padding),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
-            nn.Conv1d(in_channels=32, out_channels=32, kernel_size=5, padding=padding),
-            nn.BatchNorm1d(32),
-            nn.ReLU(),
-            nn.Conv1d(in_channels=32, out_channels=latent_features, kernel_size=3, padding=padding),
-            nn.BatchNorm1d(latent_features),
-            nn.ReLU()
-        )
+        if do_max_pool:
+            self.encoder = nn.Sequential(
+                nn.Conv1d(in_channels=num_features, out_channels=num_conv_filters, kernel_size=self.kernel_sizes[0], padding=padding),
+                nn.BatchNorm1d(num_conv_filters),
+                nn.ReLU(),
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool),
+                nn.Conv1d(in_channels=num_conv_filters, out_channels=num_conv_filters, kernel_size=self.kernel_sizes[1], padding=padding),
+                nn.BatchNorm1d(num_conv_filters),
+                nn.ReLU(),
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool),
+                nn.Conv1d(in_channels=num_conv_filters, out_channels=latent_features, kernel_size=self.kernel_sizes[2], padding=padding),
+                nn.BatchNorm1d(latent_features),
+                nn.ReLU(),
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool)
+            )
+        else:
+            self.encoder = nn.Sequential(
+                nn.Conv1d(in_channels=num_features, out_channels=num_conv_filters, kernel_size=self.kernel_sizes[0], padding=padding),
+                nn.BatchNorm1d(num_conv_filters),
+                nn.ReLU(),
+                nn.Conv1d(in_channels=num_conv_filters, out_channels=num_conv_filters, kernel_size=self.kernel_sizes[1], padding=padding),
+                nn.BatchNorm1d(num_conv_filters),
+                nn.ReLU(),
+                nn.Conv1d(in_channels=num_conv_filters, out_channels=latent_features, kernel_size=self.kernel_sizes[2], padding=padding),
+                nn.BatchNorm1d(latent_features),
+                nn.ReLU()
+            )
         
     def forward(self, x):
-        return self.encoder(x)
+        if self.return_indices:
+            indices = []
+            sizes = []
+            for layer in self.encoder:
+                if isinstance(layer, nn.MaxPool1d):
+                    sizes.append(x.size())
+                    x, idx = layer(x)
+                    indices.append(idx)
+                else:
+                    x = layer(x)
+            return x, indices, sizes
+        else:
+            return self.encoder(x)
+
+    def set_return_indices(self, return_indices):
+        if return_indices == self.return_indices:
+            return
+
+        self.return_indices = return_indices
+        self.encoder[3] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[7] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[11] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
 
     def set_requires_grad(self, requires_grad):
-        for param in self.parameters():
+        for param in self.encoder.parameters():
             param.requires_grad = requires_grad
