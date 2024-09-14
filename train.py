@@ -190,7 +190,7 @@ def get_verbose_logger():
             t.log(f"    {'train cross_ent loss:':25s} {t.latest_stat('cross_ent_train')}")
             t.log(f"    {'train cluster loss:':25s} {t.latest_stat('cluster_train')}")
             t.log(f"    {'train separation loss:':25s} {t.latest_stat('separation_train')}")
-            t.log(f"    {'train avg separation loss:':25s} {t.latest_stat('avg_separation_train')}")
+            t.log(f"    {'train avg sep loss:':25s} {t.latest_stat('avg_separation_train')}")
             t.log(f"    {'train l1_addon loss:':25s} {t.latest_stat('l1_addon_train')}")
             t.log(f"    {'train l1 loss:':25s} {t.latest_stat('l1_train')}")
             t.log(f"    {'test overall loss:':25s} {t.latest_stat('loss_test')}")

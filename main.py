@@ -7,15 +7,17 @@ import traceback
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import torch
 import torch.utils.data
+from autoencoder import (PermutingConvAutoencoder, RegularConvAutoencoder,
+                         train_autoencoder)
 from datasets_utils import ds_load
 from log import create_logger
 from model import ProtoTSNet
+from sklearn.preprocessing import StandardScaler
 from torcheval.metrics.functional import multiclass_confusion_matrix
 from train import EpochType, ProtoTSCoeffs, train_prototsnet
-
-from autoencoder import PermutingConvAutoencoder, RegularConvAutoencoder, train_autoencoder
 
 device = torch.device('cuda')
 torch.cuda.set_per_process_memory_fraction(fraction=0.5, device=0)  # or 1, watch out for CUDA_VISIBLE_DEVICES
@@ -38,18 +40,21 @@ def experiment_setup(experiment_subpath):
     
     return experiment_dir
 
-ds_name = 'Libras'
+ds_name = 'ArticularyWordRecognition'
 
-experiment_name = f"{ds_name}TestExperiment"
+experiment_name = f"{ds_name}TestExperimentScaling"
 experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=True)
 
 log(f'Loading dataset...', flush=True, display=True)
-train_ds, test_ds = ds_load(DATASETS_PATH, ds_name)
+train_ds, test_ds = ds_load(DATASETS_PATH, ds_name, scaler=StandardScaler())
+
+# read best_params.csv
+best_params = pd.read_csv('best_params.csv', index_col=0)
 
 # hyperparameters
 protos_per_class = 10  # number of prototypes will equal 'protos_per_class * number of classes'
-proto_len = 2  # prototype length (number of time steps) - it is latent space length, so due to receptive field in the input space it is longer
+proto_len = int(best_params.loc[ds_name, 'proto_len'])  # prototype length (number of time steps) - it is latent space length, so due to receptive field in the input space it is longer
 proto_features = 32  # number of latent features (dimensions) that input is encoded to
 reception = 0.25  # estimate for the fraction of significant features, better to underestimate than overestimate
 permuting_encoder = False
@@ -60,7 +65,7 @@ push_epochs = range(push_start_epoch, 1000, 30)  # which epochs to push prototyp
 num_last_layer_epochs = 40  # how many epochs to train the last layer (prototypes <-> class mapping)
 epochs = 200  # overall number of epochs (PUSH + last layer "epochs" count as one epoch here), set it so that the training ends with PUSH
 
-coeffs = ProtoTSCoeffs(crs_ent=1, l1=1e-3, clst=1e-3, sep=-3e-4)  # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
+coeffs = ProtoTSCoeffs(crs_ent=1, l1=1e-3, clst=0.08, sep=-0.008)  # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
 
 # retrieve details of the dataset
 num_classes = len(np.unique(train_ds.y))
@@ -80,13 +85,13 @@ try:
         autoencoder = PermutingConvAutoencoder(num_features=num_features, latent_features=proto_features, reception_percent=reception, padding='same')
         encoder = autoencoder.encoder
     else:
-        autoencoder = RegularConvAutoencoder(num_features=num_features, latent_features=proto_features, padding='same', do_max_pool=True)
+        autoencoder = RegularConvAutoencoder(num_features=num_features, latent_features=proto_features, padding='same', do_max_pool=False)
         encoder = autoencoder.encoder
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=train_batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
     if encoder_pretraining:
         log(f'Training encoder', flush=True, display=True)
-        train_autoencoder(autoencoder, train_loader, test_loader, device=device, log=log)
+        train_autoencoder(autoencoder, train_loader, test_loader, device=device, log=log, num_epochs=50)
     autoencoder.encoder.set_return_indices(False)
 
     ptsnet = ProtoTSNet(

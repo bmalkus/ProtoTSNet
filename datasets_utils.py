@@ -21,20 +21,22 @@ class TSCDataset():
         return self.X[idx], self.y[idx]
 
 
-def transform_ts_data(X, scaler, scale_separately=True):
+def transform_ts_data(X, scaler, scale_separately=False):
     if scale_separately:
-        for i in range(X.shape[1]):
-            X[:, i, :] = scaler.fit_transform(X[:, i, :])
+        # for i in range(X.shape[1]):
+        #     X[:, i, :] = scaler.fit_transform(X[:, i, :].reshape(-1, 1)).reshape(-1, X.shape[2])
+        X = scaler.fit_transform(X.transpose(0, 2, 1).reshape(-1, X.shape[1])).reshape(-1, X.shape[2], X.shape[1]).transpose(0, 2, 1)
         return X
     else:
-        original_shape = X.shape
-        X = X.reshape(-1, original_shape[2])
-        X = scaler.fit_transform(X)
-        X = X.reshape(original_shape)
+        # original_shape = X.shape
+        # X = X.reshape(-1, X.shape[2])
+        # X = scaler.fit_transform(X)
+        # X = X.reshape(original_shape)
+        X = scaler.fit_transform(X.reshape(-1, 1)).reshape(X.shape)
         return X
 
 
-def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None, scale_separately=True) -> Tuple[TSCDataset, TSCDataset]:
+def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None, scale_separately=False) -> Tuple[TSCDataset, TSCDataset]:
     train_file = datasets_path / ds_name / f'{ds_name}_TRAIN.arff'
     test_file = datasets_path / ds_name / f'{ds_name}_TEST.arff'
     label_encoder = LabelEncoder()
