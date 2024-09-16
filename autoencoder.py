@@ -69,7 +69,7 @@ class PermutingConvAutoencoder(nn.Module):
 
         random_state = random.getstate()
         try:
-            random.seed(42)
+            # random.seed(42)
             for _ in range(100):
                 # It may happen that feature is not taken into account at all, or it's
                 # taken into account by all the latent features, let's regenerate
@@ -90,7 +90,7 @@ class PermutingConvAutoencoder(nn.Module):
         
         self.masks = nn.Parameter(torch.FloatTensor([[1 if i in curr_receive_from else 0 for i in range(num_features)] for curr_receive_from in self.receive_from]), requires_grad=False)
 
-        self.encoder = MultiEncoder(num_features, self.masks, padding)
+        self.encoder = MultiEncoder(num_features, self.masks, padding, do_max_pool=do_max_pool)
         
         # Decoder
         if self.do_max_pool:
@@ -105,11 +105,11 @@ class PermutingConvAutoencoder(nn.Module):
             )
         else:
             self.decoder = nn.Sequential(
-                nn.ConvTranspose1d(latent_features, 256, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0),
+                nn.ConvTranspose1d(latent_features, 32, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0),
                 nn.ReLU(),
-                nn.ConvTranspose1d(256, 256, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0),
+                nn.ConvTranspose1d(32, 32, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0),
                 nn.ReLU(),
-                nn.ConvTranspose1d(256, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0)
+                nn.ConvTranspose1d(32, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0)
             )
         
     def forward(self, x):
@@ -122,37 +122,37 @@ class PermutingConvAutoencoder(nn.Module):
 class MultiEncoder(nn.Module):
     def __init__(self, num_features, masks, padding, do_max_pool=False):
         super(MultiEncoder, self).__init__()
-        self.do_max_pool = do_max_pool
+        self.return_indices = do_max_pool
         self.num_branches = len(masks)
-        if self.do_max_pool:
+        if do_max_pool:
             self.encoder = nn.Sequential(
-                nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=32 * self.num_branches, 
+                nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=8 * self.num_branches, 
                         kernel_size=7, padding=padding, groups=self.num_branches),
-                nn.BatchNorm1d(32 * self.num_branches),
+                nn.BatchNorm1d(8 * self.num_branches),
                 nn.ReLU(),
-                nn.MaxPool1d(kernel_size=2),
-                nn.Conv1d(in_channels=32 * self.num_branches, out_channels=32 * self.num_branches, 
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool),
+                nn.Conv1d(in_channels=8 * self.num_branches, out_channels=8 * self.num_branches, 
                         kernel_size=5, padding=padding, groups=self.num_branches),
-                nn.BatchNorm1d(32 * self.num_branches),
+                nn.BatchNorm1d(8 * self.num_branches),
                 nn.ReLU(),
-                nn.MaxPool1d(kernel_size=2),
-                nn.Conv1d(in_channels=32 * self.num_branches, out_channels=self.num_branches, 
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool),
+                nn.Conv1d(in_channels=8 * self.num_branches, out_channels=self.num_branches, 
                         kernel_size=3, padding=padding, groups=self.num_branches),
                 nn.BatchNorm1d(self.num_branches),
                 nn.ReLU(),
-                nn.MaxPool1d(kernel_size=2)
+                nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool)
             )
         else:
             self.encoder = nn.Sequential(
-                nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=32 * self.num_branches, 
+                nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=8 * self.num_branches, 
                         kernel_size=7, padding=padding, groups=self.num_branches),
-                nn.BatchNorm1d(32 * self.num_branches),
+                nn.BatchNorm1d(8 * self.num_branches),
                 nn.ReLU(),
-                nn.Conv1d(in_channels=32 * self.num_branches, out_channels=32 * self.num_branches, 
+                nn.Conv1d(in_channels=8 * self.num_branches, out_channels=8 * self.num_branches, 
                         kernel_size=5, padding=padding, groups=self.num_branches),
-                nn.BatchNorm1d(32 * self.num_branches),
+                nn.BatchNorm1d(8 * self.num_branches),
                 nn.ReLU(),
-                nn.Conv1d(in_channels=32 * self.num_branches, out_channels=self.num_branches, 
+                nn.Conv1d(in_channels=8 * self.num_branches, out_channels=self.num_branches, 
                         kernel_size=3, padding=padding, groups=self.num_branches),
                 nn.BatchNorm1d(self.num_branches),
                 nn.ReLU()
@@ -169,6 +169,15 @@ class MultiEncoder(nn.Module):
         encoded = self.encoder(x)
 
         return encoded
+
+    def set_return_indices(self, return_indices):
+        if return_indices == self.return_indices:
+            return
+
+        self.return_indices = return_indices
+        self.encoder[3] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[7] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[11] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
 
     def set_requires_grad(self, requires_grad):
         for param in self.encoder.parameters():
@@ -203,7 +212,7 @@ class RegularConvAutoencoder(nn.Module):
             )
         
     def forward(self, x):
-        if self.do_max_pool:
+        if self.return_indices:
             encoded, indices, sizes = self.encoder(x)
             encoded = F.dropout(encoded, p=0.3, training=self.training)
             indices = indices[::-1]

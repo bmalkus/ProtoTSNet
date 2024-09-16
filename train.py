@@ -35,7 +35,8 @@ def train_prototsnet(
     lr_sched_setup=None,
     custom_hooks=None,
     early_stopper=None,
-    log=None
+    log=None,
+    add_params_to_log={}
 ):
     save_files = True if experiment_dir is not None else False
     logclose = lambda: None
@@ -82,6 +83,7 @@ def train_prototsnet(
             "num_last_layer_epochs": num_last_layer_epochs,
             "epochs": num_epochs,
             "learning_rates": str(learning_rates),
+            **add_params_to_log
         }
         with open(experiment_dir / "params.json", "w") as f:
             json.dump(params, f, indent=4)
