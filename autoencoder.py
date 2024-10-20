@@ -1,9 +1,10 @@
+import random
+from collections import Counter
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-import random
-from collections import Counter
 
 
 def train_autoencoder(model, train_loader, test_loader, device, log=print, num_epochs=300):

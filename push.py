@@ -1,19 +1,16 @@
-import torch
-import numpy as np
-import matplotlib.pyplot as plt
 import os
-import copy
 import time
 
-from receptive_field import compute_rf_prototype
+import numpy as np
+import torch
+from receptive_field import ReceptiveFieldInfo, compute_rf_prototype
 
 
-def find_high_activation_crop(activation_map, proto_len, ts_len):
-    receptive_field_size = 13 + proto_len - 1
+def find_high_activation_crop(activation_map, ts_len, proto_rf_info: ReceptiveFieldInfo):
     max_activation_idx = np.argmax(activation_map)
-    rf_start = max_activation_idx - receptive_field_size // 2
+    rf_start = max_activation_idx - proto_rf_info.size // 2
     rf_start = 0 if rf_start < 0 else rf_start
-    rf_end = rf_start + receptive_field_size
+    rf_end = rf_start + proto_rf_info.size
     rf_end = ts_len if rf_end > ts_len else rf_end
     
     return rf_start, rf_end+1

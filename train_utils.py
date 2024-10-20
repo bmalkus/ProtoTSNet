@@ -1,6 +1,7 @@
-import torch
-from pathlib import Path
 from enum import Enum
+from pathlib import Path
+
+import torch
 
 EpochType = Enum('EpochType', 'WARM,JOINT,PUSH,LAST_LAYER')
 

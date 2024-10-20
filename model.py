@@ -1,10 +1,13 @@
+import itertools
+from collections import namedtuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from receptive_field import compute_proto_layer_rf_info
 
-from receptive_field import compute_proto_layer_rf_info_v2
+ProtoLayerShape = namedtuple('ProtoShape', ['num_prototypes', 'latent_features', 'latent_proto_len'])
 
-import itertools
 
 class ProtoTSNet(nn.Module):
 
@@ -26,8 +29,8 @@ class ProtoTSNet(nn.Module):
         self.num_features = num_features
         self.ts_sample_len = ts_sample_len
 
-        self.prototype_shape = (proto_num, latent_features, proto_len_latent)
-        self.num_prototypes = self.prototype_shape[0]
+        self.proto_layer_shape = ProtoLayerShape(proto_num, latent_features, proto_len_latent)
+        self.num_prototypes = self.proto_layer_shape.num_prototypes
         self.num_classes = num_classes
         self.epsilon = 1e-4
 
@@ -47,30 +50,28 @@ class ProtoTSNet(nn.Module):
         for j in range(self.num_prototypes):
             self.prototype_class_identity[j, j // num_prototypes_per_class] = 1
 
-        self.proto_layer_rf_info = compute_proto_layer_rf_info_v2(
-            img_size=ts_sample_len,
-            layer_filter_sizes=[],
-            layer_strides=[],
-            layer_paddings=[],
-            prototype_kernel_size=self.prototype_shape[2],
-        )
-
         self.add_on_layers = nn.Sequential(
             nn.Conv1d(
-                in_channels=self.prototype_shape[1],
-                out_channels=self.prototype_shape[1],
+                in_channels=self.proto_layer_shape.latent_features,
+                out_channels=self.proto_layer_shape.latent_features,
                 kernel_size=1,
                 bias=False,
             ),
             nn.ReLU(),
         )
 
+        self.proto_layer_rf_info = compute_proto_layer_rf_info(
+            ts_len=self.ts_sample_len,
+            latent_proto_len=self.proto_layer_shape.latent_proto_len,
+            layers=self.features
+        )
+
         self.prototype_vectors = nn.Parameter(
-            torch.rand(self.prototype_shape), requires_grad=True
+            torch.rand(self.proto_layer_shape), requires_grad=True
         )
 
         # do not make this just a tensor, since it will not be moved automatically to gpu
-        self.ones = nn.Parameter(torch.ones(self.prototype_shape), requires_grad=False)
+        self.ones = nn.Parameter(torch.ones(self.proto_layer_shape), requires_grad=False)
 
         self.last_layer = nn.Linear(self.num_prototypes, self.num_classes, bias=False)
 

@@ -13,11 +13,10 @@ import torch.utils.data
 from autoencoder import (PermutingConvAutoencoder, RegularConvAutoencoder,
                          train_autoencoder)
 from datasets_utils import ds_load
-from log import create_logger
 from model import ProtoTSNet
 from sklearn.preprocessing import StandardScaler
 from torcheval.metrics.functional import multiclass_confusion_matrix
-from train import EpochType, ProtoTSCoeffs, train_prototsnet
+from train import EpochType, ProtoTSCoeffs, train_prototsnet, create_logger
 
 device = torch.device('cuda')
 torch.cuda.set_per_process_memory_fraction(fraction=0.5, device=0)  # or 1, watch out for CUDA_VISIBLE_DEVICES

@@ -8,7 +8,6 @@ from pathlib import Path
 
 import push
 import torch
-from log import create_logger
 from model import ProtoTSNet
 from torch.utils.data import DataLoader
 from train_utils import EarlyStopping, EpochType
@@ -71,10 +70,10 @@ def train_prototsnet(
         }
 
         params = {
-            "proto_num": ptsnet.prototype_shape[0],
-            "proto_features": ptsnet.prototype_shape[1],
-            "proto_len_latent": ptsnet.prototype_shape[2],
-            "protos_per_class": ptsnet.prototype_shape[0] // ptsnet.num_classes if class_specific else None,
+            "proto_num": ptsnet.proto_layer_shape[0],
+            "proto_features": ptsnet.proto_layer_shape[1],
+            "proto_len_latent": ptsnet.proto_layer_shape[2],
+            "protos_per_class": ptsnet.proto_layer_shape[0] // ptsnet.num_classes if class_specific else None,
             "ts_len": ptsnet.ts_sample_len,
             "num_classes": ptsnet.num_classes,
             "coeffs": coeffs._asdict(),
@@ -155,6 +154,20 @@ def best_stat_saver(stat_name, file_path, mode='min'):
                     'overall': best if can_save_overal else None
                 }, f)
     return save_best_stat
+
+
+def create_logger(log_filename, display=True):
+    f = open(log_filename, 'a')
+    logger_display = display
+
+    def logger(text, flush=False, display=logger_display):
+        if display:
+            print(text)
+        f.write(text + '\n')
+        if flush:
+            f.flush()
+
+    return logger, f.close
 
 
 def get_verbose_logger():
@@ -464,8 +477,8 @@ class ProtoTSNetTrainer:
         total_avg_separation_cost = 0
         total_loss = 0
 
-        for i, (image, label) in enumerate(dataloader):
-            input = image.to(self.device)
+        for (series, label) in dataloader:
+            input = series.to(self.device)
             target = label.to(self.device)
 
             # torch.enable_grad() has no effect outside of no_grad()

@@ -23,15 +23,9 @@ class TSCDataset():
 
 def transform_ts_data(X, scaler, scale_separately=False):
     if scale_separately:
-        # for i in range(X.shape[1]):
-        #     X[:, i, :] = scaler.fit_transform(X[:, i, :].reshape(-1, 1)).reshape(-1, X.shape[2])
         X = scaler.fit_transform(X.transpose(0, 2, 1).reshape(-1, X.shape[1])).reshape(-1, X.shape[2], X.shape[1]).transpose(0, 2, 1)
         return X
     else:
-        # original_shape = X.shape
-        # X = X.reshape(-1, X.shape[2])
-        # X = scaler.fit_transform(X)
-        # X = X.reshape(original_shape)
         X = scaler.fit_transform(X.reshape(-1, 1)).reshape(X.shape)
         return X
 
@@ -47,10 +41,6 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
         for row in data:
             x, label = row
             x = np.array(x.tolist(), dtype='float32')
-            # # Ensure length is divisible by 8
-            # pad_length = 8 - (x.shape[1] % 8) if (x.shape[1] % 8) != 0 else 0
-            # if pad_length > 0:
-            #     x = np.pad(x, (0, pad_length), 'constant')
             X.append(x)
             y.append(label)
         return np.nan_to_num(np.stack(X, axis=0), 0), np.stack(y, axis=0)
