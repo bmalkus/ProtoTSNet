@@ -1,19 +1,23 @@
 import itertools
+import typing
 from collections import namedtuple
+from typing import Union
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from receptive_field import compute_proto_layer_rf_info
 
-ProtoLayerShape = namedtuple('ProtoShape', ['num_prototypes', 'latent_features', 'latent_proto_len'])
+from autoencoder import MultiEncoder, RegularConvEncoder
+
+ProtoLayerShape = namedtuple('ProtoLayerShape', ['num_prototypes', 'latent_features', 'latent_proto_len'])
 
 
 class ProtoTSNet(nn.Module):
 
     def __init__(
         self,
-        cnn_base,
+        cnn_base: Union[MultiEncoder, RegularConvEncoder],
         num_features,
         ts_sample_len,
         proto_num,
@@ -63,7 +67,7 @@ class ProtoTSNet(nn.Module):
         self.proto_layer_rf_info = compute_proto_layer_rf_info(
             ts_len=self.ts_sample_len,
             latent_proto_len=self.proto_layer_shape.latent_proto_len,
-            layers=self.features
+            layers=self.features.encoder
         )
 
         self.prototype_vectors = nn.Parameter(

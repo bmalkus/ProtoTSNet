@@ -12,7 +12,7 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
     model.to(device)
-    
+
     for epoch in range(1, num_epochs+1):
         # training
         model.train()
@@ -23,9 +23,9 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
         train_loss = 0
         for (data, _) in train_loader:
             data = data.to(device)
-            
+
             optimizer.zero_grad()
-            
+
             outputs, _ = model(data)
 
             loss = calc_mse_loss(outputs, data)
@@ -34,12 +34,12 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
             optimizer.step()
 
             train_loss += loss.item() * data.size(0)
-        
+
             n_examples += data.size(0)
 
         train_loss /= n_examples
         scheduler.step()
-    
+
         # testing
         if epoch % 10 == 0:
             test_loss = 0
@@ -47,15 +47,15 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
             model.eval()
             for (data, _) in test_loader:
                 data = data.to(device)
-                
+
                 with torch.no_grad():
                     outputs, _ = model(data)
 
                     loss = calc_mse_loss(outputs, data)
-        
+
                 n_examples += data.size(0)
                 test_loss += loss.item() * data.size(0)
-            
+
             test_loss /= n_examples
 
             to_print += f'mse loss: {test_loss:>5.4f}'

@@ -223,7 +223,7 @@ def get_verbose_logger():
 class ProtoTSNetTrainer:
     def __init__(
         self,
-        ptsnet,
+        ptsnet: ProtoTSNet,
         device,
         train_loader: DataLoader,
         test_loader: DataLoader,
@@ -490,8 +490,8 @@ class ProtoTSNetTrainer:
                 cross_entropy = torch.nn.functional.cross_entropy(output, target)
 
                 if self.class_specific:
-                    max_dist = (self.ptsnet.prototype_shape[1]
-                                * self.ptsnet.prototype_shape[2])
+                    max_dist = (self.ptsnet.proto_layer_shape.latent_features
+                                * self.ptsnet.proto_layer_shape.latent_proto_len)
 
                     # prototypes_of_correct_class is a tensor of shape batch_size * num_prototypes
                     # calculate cluster cost

@@ -28,15 +28,14 @@ def experiment_setup(experiment_subpath):
     experiment_dir = Path.cwd() / 'experiments' / experiment_subpath
     os.makedirs(experiment_dir, exist_ok=True)
 
-    shutil.copy(src=Path.cwd()/'main.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'autoencoder.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'datasets_utils.py', dst=experiment_dir)
-    shutil.copy(src=Path.cwd()/'experiments.ipynb', dst=experiment_dir)
+    shutil.copy(src=Path.cwd()/'main.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'model.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'push.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'train_utils.py', dst=experiment_dir)
     shutil.copy(src=Path.cwd()/'train.py', dst=experiment_dir)
-    
+
     return experiment_dir
 
 parser = argparse.ArgumentParser(description='Run experiment with specified dataset and experiment directory.')
@@ -44,18 +43,20 @@ parser.add_argument('--dataset', type=str, required=True, help='Name of the data
 parser.add_argument('--experiment_name', type=str, required=True, help='Directory to save experiment results')
 parser.add_argument('--permuting_encoder', action='store_true', help='Use permuting encoder', required=False, default=True)
 parser.add_argument('--encoder_pretraining', action='store_true', help='Train encoder before ProtoTSNet', required=False, default=True)
+parser.add_argument('--pretraining_epochs', type=int, help='Number of encoder pretraining epochs', required=False, default=50)
 parser.add_argument('--num_warm_epochs', type=int, help='Number of warm-up epochs', required=False, default=None)
 parser.add_argument('--push_start_epoch', type=int, help='Epoch to start pushing prototypes', required=False, default=110)
 parser.add_argument('--push_epochs_interval', type=int, help='Interval between pushing prototypes', required=False, default=30)
 parser.add_argument('--last_layer_epochs', type=int, help='Number of epochs to train last layer', required=False, default=40)
 parser.add_argument('--epochs', type=int, help='Number of epochs to train', required=False, default=200)
 parser.add_argument('--proto_features', type=int, help='Number of latent features', required=False, default=32)
-parser.add_argument('--proto_len', type=int, help='Length of prototype', required=False, default=None)
+parser.add_argument('--proto_len', type=int, help='Prototype length (in time steps)', required=False, default=None)
 parser.add_argument('--reception', type=float, help='Fraction of significant features', required=False, default=None)
 parser.add_argument('--l1_addon_coeff', type=float, help='L1 regularization coefficient for feature importance layer', required=False, default=1e-3)
 parser.add_argument('--l1_coeff', type=float, help='L1 regularization coefficient', required=False, default=1e-3)
 parser.add_argument('--clst_coeff', type=float, help='Cluster separation coefficient', required=False, default=0.08)
 parser.add_argument('--sep_coeff', type=float, help='Separation coefficient', required=False, default=-0.008)
+# parser.add_argument('--param_selection', action='store_true', help='Run hyperparameter selection', required=False, default=False)
 args = parser.parse_args()
 
 ds_name = args.dataset
@@ -90,26 +91,24 @@ num_classes = len(np.unique(train_ds.y))
 num_features = train_ds.X.shape[1]
 ts_len = train_ds.X.shape[2]
 
-train_batch_size = 32
-# reduce in case dataset is small
-while train_batch_size > len(train_ds.X) / 2:
-    train_batch_size //= 2
-test_batch_size = 128
-
 try:
+    train_batch_size = 32
+    # reduce in case dataset is small
+    while train_batch_size > len(train_ds.X) / 4:
+        train_batch_size //= 2
+    test_batch_size = 128
+
     whole_training_start = time.time()
 
     if permuting_encoder:
         autoencoder = PermutingConvAutoencoder(num_features=num_features, latent_features=proto_features, reception_percent=reception, padding='same', do_max_pool=False)
-        encoder = autoencoder.encoder
     else:
         autoencoder = RegularConvAutoencoder(num_features=num_features, latent_features=proto_features, padding='same', do_max_pool=False)
-        encoder = autoencoder.encoder
     train_loader = torch.utils.data.DataLoader(train_ds, batch_size=train_batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
     if encoder_pretraining:
         log(f'Training encoder', flush=True, display=True)
-        train_autoencoder(autoencoder, train_loader, test_loader, device=device, log=log, num_epochs=50)
+        train_autoencoder(autoencoder, train_loader, test_loader, device=device, log=log, num_epochs=args.pretraining_epochs)
     autoencoder.encoder.set_return_indices(False)
 
     ptsnet = ProtoTSNet(
@@ -156,7 +155,7 @@ try:
     log(f'Last epoch test accu: {accu_test*100:.2f}%', display=True)
     with open(experiment_dir / "test_accu.json", "w") as f:
         json.dump({"value": accu_test}, f, indent=4)
-    
+
     test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
     confusion_matrix = torch.zeros(ptsnet.num_classes, ptsnet.num_classes)
     for i, (image, label) in enumerate(test_loader):
@@ -173,3 +172,4 @@ except Exception as e:
     raise
 finally:
     logclose()
+

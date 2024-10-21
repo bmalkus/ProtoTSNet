@@ -102,7 +102,7 @@ class EarlyStopping:
                 self._should_stop = True
                 return True
         return False
-    
+
     def stop_waiting(self):
         self._wait = 0
 

@@ -12,7 +12,7 @@ def find_high_activation_crop(activation_map, ts_len, proto_rf_info: ReceptiveFi
     rf_start = 0 if rf_start < 0 else rf_start
     rf_end = rf_start + proto_rf_info.size
     rf_end = ts_len if rf_end > ts_len else rf_end
-    
+
     return rf_start, rf_end+1
 
 
@@ -27,28 +27,28 @@ def push_prototypes(dataloader,
                     proto_ts_filename_prefix=None,
                     prototype_self_act_filename_prefix=None,
                     proto_bound_boxes_filename_prefix=None,
-                    save_prototype_class_identity=True, # which class the prototype image comes from
+                    save_prototype_class_identity=True, # which class the prototype serie comes from
                     prototype_activation_function_in_numpy=None,
                     device=None):
 
     prototype_network.eval()
 
     start = time.time()
-    prototype_shape = prototype_network.prototype_shape
+    proto_layer_shape = prototype_network.proto_layer_shape
     n_prototypes = prototype_network.num_prototypes
     # saves the closest distance seen so far
     global_min_proto_dist = np.full(n_prototypes, np.inf)
     # saves the patch representation that gives the current smallest distance
     global_min_fmap_patches = np.zeros(
         [n_prototypes,
-         prototype_shape[1],
-         prototype_shape[2]])
+         proto_layer_shape.latent_features,
+         proto_layer_shape.latent_proto_len])
 
     '''
     proto_rf_boxes and proto_bounds column:
     0: example index in the entire dataset
-    1: proto start index in the input series
-    2: proto end index in the input series
+    1: proto start index in the input serie
+    2: proto end index in the input serie
     3: (optional) class identity
     '''
     if save_prototype_class_identity:
@@ -78,7 +78,7 @@ def push_prototypes(dataloader,
 
     for push_iter, (search_batch_input, search_y) in enumerate(dataloader):
         '''
-        start_index_of_search keeps track of the index of the image
+        start_index_of_search keeps track of the index of the serie
         assigned to serve as prototype
         '''
         start_index_of_search_batch = push_iter * search_batch_size
@@ -108,7 +108,7 @@ def push_prototypes(dataloader,
                 proto_bounds)
 
     prototype_update = np.reshape(global_min_fmap_patches,
-                                  tuple(prototype_shape))
+                                  tuple(proto_layer_shape))
     prototype_network.prototype_vectors.data.copy_(torch.tensor(prototype_update, dtype=torch.float32).to(device))
     end = time.time()
 
@@ -154,15 +154,15 @@ def update_prototypes_on_batch(search_batch_input,
 
     if class_specific:
         class_to_ts_idx_dict = {key: [] for key in range(num_classes)}
-        # ts_y is the time series' integer label
+        # ts_y is the time serie's integer label
         for ts_idx, ts_y in enumerate(search_y):
             label = ts_y.item()
             class_to_ts_idx_dict[label].append(ts_idx)
 
-    prototype_shape = prototype_network.prototype_shape
-    n_prototypes = prototype_shape[0]
-    proto_len = prototype_shape[2]
-    max_dist = prototype_shape[1] * prototype_shape[2]
+    proto_layer_shape = prototype_network.proto_layer_shape
+    n_prototypes = proto_layer_shape.num_prototypes
+    proto_len = proto_layer_shape.latent_proto_len
+    max_dist = proto_layer_shape.latent_features * proto_layer_shape.latent_proto_len
 
     for proto_idx in range(n_prototypes):
         #if n_prototypes_per_class != None:
@@ -203,21 +203,21 @@ def update_prototypes_on_batch(search_batch_input,
             global_min_proto_dist[proto_idx] = batch_min_proto_dist
             # print(batch_min_fmap_patch_j.shape)
             global_min_fmap_patches[proto_idx] = batch_min_fmap_patch_j
-            
-            # get the receptive field boundary of the image patch
+
+            # get the receptive field boundary of the serie patch
             # that generates the representation
             protoL_rf_info = prototype_network.proto_layer_rf_info
             receptive_field_info = compute_rf_prototype(search_batch.size(2), batch_argmin_proto_dist, protoL_rf_info)
-            
-            # get the whole image
+
+            # get the whole serie
             original_closest_ts = search_batch_input[receptive_field_info[0]]
             original_closest_ts = original_closest_ts.numpy()
             original_closest_ts = np.transpose(original_closest_ts, (1, 0))
             original_ts_len = original_closest_ts.shape[0]
-            
+
             # crop out the receptive field
             rf_from_ts = original_closest_ts[receptive_field_info[1]:receptive_field_info[2], :]
-            
+
             # save the prototype receptive field information
             proto_rf_boxes[proto_idx, 0] = receptive_field_info[0] + start_index_of_search_batch
             proto_rf_boxes[proto_idx, 1] = receptive_field_info[1]
@@ -237,7 +237,7 @@ def update_prototypes_on_batch(search_batch_input,
                 np.linspace(0, proto_act_closest_ts.shape[0] - 1, original_ts_len),
                 np.arange(proto_act_closest_ts.shape[0]),
                 proto_act_closest_ts)
-            proto_bound = find_high_activation_crop(upsampled_proto_act, proto_len=proto_len, ts_len=original_ts_len)
+            proto_bound = find_high_activation_crop(upsampled_proto_act, ts_len=original_ts_len, proto_rf_info=protoL_rf_info)
             # crop out the fragemtn with high activation as prototypical part
             cropped_closest_ts = original_closest_ts[proto_bound[0]:proto_bound[1], :]
 
@@ -255,7 +255,7 @@ def update_prototypes_on_batch(search_batch_input,
                                          prototype_self_act_filename_prefix + str(proto_idx) + '.npy'),
                             proto_act_closest_ts)
                 if proto_ts_filename_prefix is not None:
-                    # save the whole image containing the prototype as png
+                    # save the whole serie containing the prototype as npy
                     np.save(os.path.join(dir_for_saving_prototypes,
                                             proto_ts_filename_prefix + '-original' + str(proto_idx) + '.npy'),
                             original_closest_ts)
@@ -263,19 +263,19 @@ def update_prototypes_on_batch(search_batch_input,
                     np.save(os.path.join(dir_for_saving_prototypes,
                                             f'{proto_ts_filename_prefix}-original_with_self_act{proto_idx:03d}.npy'),
                             orig_ts_with_add_feature)
-                    
-                    # if different from the original (whole) image, save the prototype receptive field as png
+
+                    # if different from the original (whole) serie, save the serie receptive field as npy
                     if rf_from_ts.shape[0] != original_ts_len or rf_from_ts.shape[1] != original_ts_len:
                         np.save(
                             os.path.join(
                                 dir_for_saving_prototypes,
                                 f'{proto_ts_filename_prefix}-receptive_field{proto_idx:03d}.npy'),
                             rf_from_ts)
-                    
+
                     np.save(
                         os.path.join(
                             dir_for_saving_prototypes, proto_ts_filename_prefix + str(proto_idx) + '.npy'),
                         cropped_closest_ts)
-                
+
     if class_specific:
         del class_to_ts_idx_dict

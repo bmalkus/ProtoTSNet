@@ -44,7 +44,7 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
             X.append(x)
             y.append(label)
         return np.nan_to_num(np.stack(X, axis=0), 0), np.stack(y, axis=0)
-    
+
     if train_size is None:
         trainX, trainy = arff_to_numpy(train_file)
         testX, testy = arff_to_numpy(test_file)
