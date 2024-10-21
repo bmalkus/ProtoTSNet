@@ -63,6 +63,8 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
 
     if scaler:
         trainX = transform_ts_data(trainX, scaler, scale_separately)
+        if val_size:
+            valX = transform_ts_data(valX, scaler, scale_separately)
         testX = transform_ts_data(testX, scaler, scale_separately)
 
     if val_size:
