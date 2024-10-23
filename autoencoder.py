@@ -71,7 +71,7 @@ class PermutingConvAutoencoder(nn.Module):
 
         random_state = random.getstate()
         try:
-            # random.seed(42)
+            random.seed(42)
             for _ in range(100):
                 # It may happen that feature is not taken into account at all, or it's
                 # taken into account by all the latent features, let's regenerate
@@ -124,21 +124,21 @@ class MultiEncoder(nn.Module):
         self.num_branches = len(masks)
 
         layers = []
-        layers.append(nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=8 * self.num_branches,
+        layers.append(nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=16 * self.num_branches,
                                 kernel_size=7, padding=padding, groups=self.num_branches))
         if do_batch_norm:
-            layers.append(nn.BatchNorm1d(8 * self.num_branches))
+            layers.append(nn.BatchNorm1d(16 * self.num_branches))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(nn.Conv1d(in_channels=8 * self.num_branches, out_channels=8 * self.num_branches,
+        layers.append(nn.Conv1d(in_channels=16 * self.num_branches, out_channels=16 * self.num_branches,
                                 kernel_size=5, padding=padding, groups=self.num_branches))
         if do_batch_norm:
-            layers.append(nn.BatchNorm1d(8 * self.num_branches))
+            layers.append(nn.BatchNorm1d(16 * self.num_branches))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(nn.Conv1d(in_channels=8 * self.num_branches, out_channels=self.num_branches,
+        layers.append(nn.Conv1d(in_channels=16 * self.num_branches, out_channels=self.num_branches,
                                 kernel_size=3, padding=padding, groups=self.num_branches))
         if do_batch_norm:
             layers.append(nn.BatchNorm1d(self.num_branches))
