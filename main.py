@@ -42,8 +42,8 @@ def experiment_setup(experiment_subpath):
 parser = argparse.ArgumentParser(description='Run experiment with specified dataset and experiment directory.')
 parser.add_argument('--dataset', type=str, required=True, help='Name of the dataset to use')
 parser.add_argument('--experiment_name', type=str, required=True, help='Directory to save experiment results')
-parser.add_argument('--permuting_encoder', action='store_true', help='Use permuting encoder', required=False, default=True)
-parser.add_argument('--encoder_pretraining', action='store_true', help='Train encoder before ProtoTSNet', required=False, default=True)
+parser.add_argument('--no-permuting_encoder', action='store_true', help='Use permuting encoder', required=False)
+parser.add_argument('--no-encoder_pretraining', action='store_true', help='Train encoder before ProtoTSNet', required=False)
 parser.add_argument('--pretraining_epochs', type=int, help='Number of encoder pretraining epochs', required=False, default=50)
 parser.add_argument('--num_warm_epochs', type=int, help='Number of warm-up epochs', required=False, default=None)
 parser.add_argument('--push_start_epoch', type=int, help='Epoch to start pushing prototypes', required=False, default=110)
@@ -78,8 +78,8 @@ protos_per_class = 10  # number of prototypes will equal 'protos_per_class * num
 proto_len = int(best_params.loc[ds_name, 'proto_len']) if args.proto_len is None else args.proto_len  # prototype length (number of time steps) - it is latent space length, so due to receptive field in the input space it is longer
 proto_features = args.proto_features  # number of latent features (dimensions) that input is encoded to
 reception = float(best_params.loc[ds_name, 'reception']) if args.reception is None else args.reception  # estimate for the fraction of significant features, better to underestimate than overestimate
-permuting_encoder = args.permuting_encoder
-encoder_pretraining = args.encoder_pretraining
+permuting_encoder = not args.no_permuting_encoder
+encoder_pretraining = not args.no_encoder_pretraining
 num_warm_epochs = args.num_warm_epochs if args.num_warm_epochs is not None else 50 if encoder_pretraining else 0 # number of epochs during which encoder weights are frozen, value >0 only makes sense if encoder is pretrained
 push_start_epoch = args.push_start_epoch  # when to start pushing prototypes onto the input data
 push_epochs = range(push_start_epoch, 1000, args.push_epochs_interval)  # which epochs to push prototypes on
@@ -92,6 +92,10 @@ coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff
 num_classes = len(np.unique(train_ds.y))
 num_features = train_ds.X.shape[1]
 ts_len = train_ds.X.shape[2]
+
+if num_features == 1:
+    # this is a univariate dataset, no point in using permuting encoder
+    permuting_encoder = False
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
     try:
