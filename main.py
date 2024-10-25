@@ -101,12 +101,16 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
             train_batch_size //= 2
         test_batch_size = 128
 
+        do_batch_norm = True
+        if train_batch_size < 16:
+            do_batch_norm = False
+
         whole_training_start = time.time()
 
         if permuting_encoder:
-            autoencoder = PermutingConvAutoencoder(num_features=num_features, latent_features=proto_features, reception_percent=reception, padding='same', do_max_pool=False)
+            autoencoder = PermutingConvAutoencoder(num_features=num_features, latent_features=proto_features, reception_percent=reception, padding='same', do_max_pool=False, do_batch_norm=do_batch_norm)
         else:
-            autoencoder = RegularConvAutoencoder(num_features=num_features, latent_features=proto_features, padding='same', do_max_pool=False)
+            autoencoder = RegularConvAutoencoder(num_features=num_features, latent_features=proto_features, padding='same', do_max_pool=False, do_batch_norm=do_batch_norm)
         train_loader = torch.utils.data.DataLoader(train_ds, batch_size=train_batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
         if encoder_pretraining:

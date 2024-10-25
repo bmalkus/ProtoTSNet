@@ -396,7 +396,7 @@ class ProtoTSNetTrainer:
                 class_specific=self.class_specific,
                 preprocess_input_function=None,
                 prototype_layer_stride=1,
-                root_dir_for_saving_prototypes=self.proto_save_dir, # if not None, prototypes will be saved here
+                root_dir_for_saving_prototypes=self.proto_save_dir if self.curr_epoch == self.num_train_epochs else None, # if not None, prototypes will be saved here
                 epoch_number=self.curr_epoch, # if not provided, prototypes saved previously will be overwritten
                 proto_ts_filename_prefix=prototype_ts_filename_prefix,
                 prototype_self_act_filename_prefix=prototype_self_act_filename_prefix,
