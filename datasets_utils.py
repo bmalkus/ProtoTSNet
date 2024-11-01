@@ -39,7 +39,13 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
         data, _ = loadarff(file_path)
         X, y = [], []
         for row in data:
-            x, label = row
+            try:
+                x, label = row
+            except ValueError:
+                # univariate data
+                row = row.tolist()
+                x = np.array(row[:-1]).reshape(1, -1)
+                label = row[-1]
             x = np.array(x.tolist(), dtype='float32')
             X.append(x)
             y.append(label)

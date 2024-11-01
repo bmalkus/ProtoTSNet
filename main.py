@@ -164,9 +164,10 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
         )
 
         accu_test = trainer.latest_stat("accu_test")
+        total_time = trainer.latest_stat("total_time")
         log(f'Last epoch test accu: {accu_test*100:.2f}%', display=True)
-        with open(experiment_dir / "test_accu.json", "w") as f:
-            json.dump({"value": accu_test}, f, indent=4)
+        with open(experiment_dir / "results.json", "w") as f:
+            json.dump({"accu_test": accu_test, "time": total_time}, f, indent=4)
 
         test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
         confusion_matrix = torch.zeros(ptsnet.num_classes, ptsnet.num_classes)
