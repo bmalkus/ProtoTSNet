@@ -23,7 +23,7 @@ device = torch.device('cuda')
 # torch.cuda.set_per_process_memory_fraction(fraction=0.5, device=0)  # or 1, watch out for CUDA_VISIBLE_DEVICES
 
 # dataset in arff format should be put in the 'datasets/' directory (downloaded from timeseriesclassification.com)
-DATASETS_PATH = Path('datasets')
+DATASETS_PATH = 'datasets'
 
 def experiment_setup(experiment_subpath):
     experiment_dir = Path.cwd() / 'experiments' / experiment_subpath
@@ -50,6 +50,7 @@ parser.add_argument('--push_start_epoch', type=int, help='Epoch to start pushing
 parser.add_argument('--push_epochs_interval', type=int, help='Interval between pushing prototypes', required=False, default=30)
 parser.add_argument('--last_layer_epochs', type=int, help='Number of epochs to train last layer', required=False, default=40)
 parser.add_argument('--epochs', type=int, help='Number of epochs to train', required=False, default=200)
+parser.add_argument('--protos_per_class', type=int, help='Number of prototypes per class', required=False, default=10)
 parser.add_argument('--proto_features', type=int, help='Number of latent features', required=False, default=32)
 parser.add_argument('--proto_len', type=int, help='Prototype length (in time steps)', required=False, default=None)
 parser.add_argument('--reception', type=float, help='Fraction of significant features', required=False, default=None)
@@ -59,8 +60,10 @@ parser.add_argument('--clst_coeff', type=float, help='Cluster separation coeffic
 parser.add_argument('--sep_coeff', type=float, help='Separation coefficient', required=False, default=-0.008)
 parser.add_argument('--param_selection', action='store_true', help='Run hyperparameter selection', required=False, default=False)
 parser.add_argument('--verbose', action='store_true', help='Verbose output', required=False, default=False)
+parser.add_argument('--datasets_path', help='Path to UEA datasets', required=False, default=DATASETS_PATH)
 args = parser.parse_args()
 
+datasets_path = Path(args.datasets_path)
 ds_name = args.dataset
 
 experiment_name = f"{args.experiment_name}/{ds_name}"
@@ -68,16 +71,21 @@ experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=args.verbose)
 
 log(f'Loading dataset {ds_name}...', flush=True, display=True)
-train_ds, test_ds = ds_load(DATASETS_PATH, ds_name, scaler=StandardScaler())
+train_ds, test_ds = ds_load(datasets_path, ds_name, scaler=StandardScaler())
 
 # read best_params.csv
 best_params = pd.read_csv('best_params.csv', index_col=0)
 
+# retrieve details of the dataset
+num_classes = len(np.unique(train_ds.y))
+num_features = train_ds.X.shape[1]
+ts_len = train_ds.X.shape[2]
+
 # hyperparameters
-protos_per_class = 10  # number of prototypes will equal 'protos_per_class * number of classes'
-proto_len = int(best_params.loc[ds_name, 'proto_len']) if args.proto_len is None else args.proto_len  # prototype length (number of time steps) - it is latent space length, so due to receptive field in the input space it is longer
-proto_features = args.proto_features  # number of latent features (dimensions) that input is encoded to
-reception = float(best_params.loc[ds_name, 'reception']) if args.reception is None else args.reception  # estimate for the fraction of significant features, better to underestimate than overestimate
+protos_per_class = args.protos_per_class
+proto_len = int(best_params.loc[ds_name, 'proto_len']) if args.proto_len is None else args.proto_len
+proto_features = args.proto_features
+reception = float(best_params.loc[ds_name, 'reception']) if args.reception is None and num_features > 1 else args.reception  # estimate for the fraction of significant features, better to underestimate than overestimate
 permuting_encoder = not args.no_permuting_encoder
 encoder_pretraining = not args.no_encoder_pretraining
 num_warm_epochs = args.num_warm_epochs if args.num_warm_epochs is not None else 50 if encoder_pretraining else 0 # number of epochs during which encoder weights are frozen, value >0 only makes sense if encoder is pretrained
@@ -87,11 +95,6 @@ num_last_layer_epochs = args.last_layer_epochs  # how many epochs to train the l
 epochs = args.epochs  # overall number of epochs (PUSH + last layer "epochs" count as one epoch here), set it so that the training ends with PUSH
 
 coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff, clst=args.clst_coeff, sep=args.sep_coeff)  # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
-
-# retrieve details of the dataset
-num_classes = len(np.unique(train_ds.y))
-num_features = train_ds.X.shape[1]
-ts_len = train_ds.X.shape[2]
 
 if num_features == 1:
     # this is a univariate dataset, no point in using permuting encoder

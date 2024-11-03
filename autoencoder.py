@@ -198,7 +198,7 @@ class RegularConvAutoencoder(nn.Module):
         self.decoder = nn.Sequential(*layers)
 
     def forward(self, x):
-        if self.return_indices:
+        if self.do_max_pool:
             encoded, indices, sizes = self.encoder(x)
             encoded = F.dropout(encoded, p=0.3, training=self.training)
             indices = indices[::-1]
