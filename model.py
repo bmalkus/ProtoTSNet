@@ -75,10 +75,10 @@ class ProtoTSNet(nn.Module):
             torch.rand(self.proto_layer_shape), requires_grad=True
         )
 
-        self.target_protos_vectors = nn.Parameter(torch.zeros((proto_num, num_features, proto_len_latent)), requires_grad=False)
+        self.target_protos_vectors = nn.Parameter(torch.zeros((proto_num, num_features, self.proto_layer_rf_info.size)), requires_grad=False)
         self.target_protos_mask = nn.Parameter(torch.zeros((self.num_prototypes,)), requires_grad=False)
         self.has_target_protos = False
-        if target_protos is not None:
+        if target_protos:
             self.has_target_protos = True
             for cls_idx in range(self.num_classes):
                 if cls_idx not in target_protos:

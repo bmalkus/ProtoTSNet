@@ -185,6 +185,7 @@ def get_verbose_logger():
             t.log(f"    {'avg separation loss:':25s} {t.latest_stat('avg_separation_val')}")
             t.log(f"    {'l1_addon loss:':25s} {t.latest_stat('l1_addon_val')}")
             t.log(f"    {'l1 loss:':25s} {t.latest_stat('l1_val')}")
+            t.log(f"    {'l2 dist to target:':25s} {t.latest_stat('l2_dist_to_target_val')}")
             t.log(f"    {'train time:':25s} {t.latest_stat('time_train')}")
             t.log(f"    {'val time:':25s} {t.latest_stat('time_val')}")
             t.log(f"    {'epoch time:':25s} {t.latest_stat('epoch_time')}", flush=True)
@@ -208,6 +209,7 @@ def get_verbose_logger():
             t.log(f"    {'train avg sep loss:':25s} {t.latest_stat('avg_separation_train')}")
             t.log(f"    {'train l1_addon loss:':25s} {t.latest_stat('l1_addon_train')}")
             t.log(f"    {'train l1 loss:':25s} {t.latest_stat('l1_train')}")
+            t.log(f"    {'train l2 dist to target:':25s} {t.latest_stat('l2_dist_to_target_train')}")
             t.log(f"    {'test overall loss:':25s} {t.latest_stat('loss_test')}")
             t.log(f"    {'test cross_ent loss:':25s} {t.latest_stat('cross_ent_test')}")
             t.log(f"    {'train time:':25s} {t.latest_stat('time_train')}")
@@ -476,6 +478,7 @@ class ProtoTSNetTrainer:
         total_separation_cost = 0
         total_avg_separation_cost = 0
         total_loss = 0
+        total_dist_to_target = 0
 
         for (series, label) in dataloader:
             input = series.to(self.device)
@@ -522,6 +525,13 @@ class ProtoTSNetTrainer:
                     cluster_cost = torch.mean(min_distance)
                     l1 = self.ptsnet.last_layer.weight.norm(p=1)
 
+                if self.ptsnet.has_target_protos:
+                    conv_target_protos = self.ptsnet.conv_features(self.ptsnet.target_protos_vectors)[:, :, 6:-6]
+                    dist_to_target = torch.sqrt(torch.sum((conv_target_protos - self.ptsnet.prototype_vectors) ** 2, dim=(1, 2)))
+                    masked_dist_to_target_sum = (dist_to_target * self.ptsnet.target_protos_mask).sum()
+                else:
+                    masked_dist_to_target_sum = torch.tensor(0.0)
+
                 # evaluation statistics
                 _, predicted = torch.max(output.data, 1)
                 n_examples += target.size(0)
@@ -532,6 +542,7 @@ class ProtoTSNetTrainer:
                 total_cluster_cost += cluster_cost.item()
                 total_separation_cost += separation_cost.item()
                 total_avg_separation_cost += avg_separation_cost.item()
+                total_dist_to_target += masked_dist_to_target_sum.item()
 
             # compute gradient and do SGD step
             if self.class_specific:
@@ -540,7 +551,8 @@ class ProtoTSNetTrainer:
                         + self.coeffs['clst'] * cluster_cost
                         + self.coeffs['sep'] * separation_cost
                         + self.coeffs['l1'] * l1
-                        + self.coeffs['l1_addon'] * l1_addon)
+                        + self.coeffs['l1_addon'] * l1_addon
+                        + self.coeffs['l2_target_protos'] * masked_dist_to_target_sum)
                 else:
                     loss = cross_entropy + 0.8 * cluster_cost - 0.08 * separation_cost + 1e-4 * l1
             else:
@@ -548,7 +560,8 @@ class ProtoTSNetTrainer:
                     loss = (self.coeffs['crs_ent'] * cross_entropy
                         + self.coeffs['clst'] * cluster_cost
                         + self.coeffs['l1'] * l1
-                        + self.coeffs['l1_addon'] * l1_addon)
+                        + self.coeffs['l1_addon'] * l1_addon
+                        + self.coeffs['l2_target_protos'] * masked_dist_to_target_sum)
                 else:
                     loss = cross_entropy + 0.8 * cluster_cost + 1e-4 * l1
 
@@ -581,6 +594,7 @@ class ProtoTSNetTrainer:
             l1 = self.ptsnet.last_layer.weight.norm(p=1).item()
         self._add_stat('l1', l1)
         self._add_stat('l1_addon', self.ptsnet.add_on_layers[0].weight.norm(p=1).item())
+        self._add_stat('l2_dist_to_target', total_dist_to_target / n_batches)
 
     def _st_push_condition(self):
         if self.push_epoch_monitor is not None:

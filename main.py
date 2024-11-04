@@ -107,6 +107,10 @@ if num_features == 1:
 elif not args.reception:
     parser.error('Reception must be specified for multivariate datasets')
 
+
+# TODO: ugly hardcoded value
+rf_size = proto_len + 12
+
 target_protos = {}
 if args.target_protos_dir is not None:
     target_protos_dir = Path(args.target_protos_dir)
@@ -128,7 +132,7 @@ if args.target_protos_dir is not None:
         assert len(target_protos[class_idx]) <= args.protos_per_class, f'Number of protos for class {class_idx} to large, expected at most {args.protos_per_class} prototypes'
         for proto_idx in range(len(target_protos[class_idx])):
             assert target_protos[class_idx][proto_idx].shape[0] == num_features, f'Number of features in target proto {proto_idx} for class {class_idx} is incorrect, got {target_protos[class_idx][proto_idx].shape[0]}, expected {num_features} feature(s)'
-            assert target_protos[class_idx][proto_idx].shape[1] == proto_len, f'Length of target proto {proto_idx} for class {class_idx} is incorrect, expected {proto_len} time steps'
+            assert target_protos[class_idx][proto_idx].shape[1] == rf_size, f'Length of target proto {proto_idx} for class {class_idx} is incorrect, expected {rf_size} time steps'
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
     try:
