@@ -52,8 +52,8 @@ parser.add_argument('--last_layer_epochs', type=int, help='Number of epochs to t
 parser.add_argument('--epochs', type=int, help='Number of epochs to train', required=False, default=200)
 parser.add_argument('--protos_per_class', type=int, help='Number of prototypes per class', required=False, default=10)
 parser.add_argument('--proto_features', type=int, help='Number of latent features', required=False, default=32)
-parser.add_argument('--proto_len', type=int, help='Prototype length (in time steps)', required=False, default=None)
-parser.add_argument('--reception', type=float, help='Fraction of significant features', required=False, default=None)
+parser.add_argument('--proto_len', help='Prototype length (in time steps)', required=True, default=None)
+parser.add_argument('--reception', help='Fraction of significant features', required=False, default=None)
 parser.add_argument('--l1_addon_coeff', type=float, help='L1 regularization coefficient for feature importance layer', required=False, default=1e-3)
 parser.add_argument('--l1_coeff', type=float, help='L1 regularization coefficient', required=False, default=1e-3)
 parser.add_argument('--clst_coeff', type=float, help='Cluster separation coefficient', required=False, default=0.08)
@@ -61,6 +61,9 @@ parser.add_argument('--sep_coeff', type=float, help='Separation coefficient', re
 parser.add_argument('--param_selection', action='store_true', help='Run hyperparameter selection', required=False, default=False)
 parser.add_argument('--verbose', action='store_true', help='Verbose output', required=False, default=False)
 parser.add_argument('--datasets_path', help='Path to UEA datasets', required=False, default=DATASETS_PATH)
+
+parser.add_argument('--target_protos_dir', help='Directory with target protos', required=False, default=None)
+
 args = parser.parse_args()
 
 datasets_path = Path(args.datasets_path)
@@ -84,9 +87,9 @@ ts_len = train_ds.X.shape[2]
 
 # hyperparameters
 protos_per_class = args.protos_per_class
-proto_len = int(best_params.loc[ds_name, 'proto_len']) if args.proto_len is None else args.proto_len
+proto_len = int(best_params.loc[ds_name, 'proto_len'] if args.proto_len == 'best' else args.proto_len)
 proto_features = args.proto_features
-reception = float(best_params.loc[ds_name, 'reception']) if args.reception is None and num_features > 1 else args.reception  # estimate for the fraction of significant features, better to underestimate than overestimate
+reception = float(best_params.loc[ds_name, 'reception'] if args.reception == 'best' else args.reception) if args.reception else None  # estimate for the fraction of significant features, better to underestimate than overestimate
 permuting_encoder = not args.no_permuting_encoder
 encoder_pretraining = not args.no_encoder_pretraining
 num_warm_epochs = args.num_warm_epochs if args.num_warm_epochs is not None else 50 if encoder_pretraining else 0 # number of epochs during which encoder weights are frozen, value >0 only makes sense if encoder is pretrained
@@ -100,6 +103,8 @@ coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff
 if num_features == 1:
     # this is a univariate dataset, no point in using permuting encoder
     permuting_encoder = False
+elif not args.reception:
+    parser.error('Reception must be specified for multivariate datasets')
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
     try:
