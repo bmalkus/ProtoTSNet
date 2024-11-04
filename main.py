@@ -340,10 +340,15 @@ if num_features == 1:
 elif not reception and permuting_encoder:
     parser.error("Reception must be provided for non-UEA datasets when using permuting encoder")
 
+# TODO: ugly hardcoded value
+rf_size = proto_len + 12
 
 target_protos = {}
 if args.target_protos_dir is not None:
     target_protos_dir = Path(args.target_protos_dir)
+    if not target_protos_dir.exists():
+        parser.error(f'Target protos directory {target_protos_dir} does not exist')
+
     for class_idx in range(num_classes):
         target_protos[class_idx] = {}
         for proto_idx in range(args.protos_per_class):
@@ -353,16 +358,19 @@ if args.target_protos_dir is not None:
             target_proto = np.loadtxt(filepath)
             if len(target_proto.shape) == 1:
                 target_proto = target_proto.reshape(1, -1)
-            target_proto = scaler.transform(target_proto.transpose(1, 0)).transpose(1, 0)
+            target_proto -= target_proto.mean(axis=1)[:, np.newaxis]
+            target_proto /= target_proto.std(axis=1)[:, np.newaxis]
+            if not skip_scaling:
+                target_proto = scaler.transform(target_proto.transpose(1, 0)).transpose(1, 0)
             target_protos[class_idx][proto_idx] = target_proto
 
         print(f'Class {class_idx}: {len(target_protos[class_idx])} target proto(s)')
 
     for class_idx in range(num_classes):
-        assert len(target_protos[class_idx]) <= args.protos_per_class, f'Number of protos for class {class_idx} to large, expected at most {args.protos_per_class} prototypes'
+        assert len(target_protos[class_idx]) <= args.protos_per_class, f'Number of protos for class {class_idx} too large, expected at most {args.protos_per_class} prototypes, got {len(target_protos[class_idx])}'
         for proto_idx in range(len(target_protos[class_idx])):
-            assert target_protos[class_idx][proto_idx].shape[0] == num_features, f'Number of features in target proto {proto_idx} for class {class_idx} is incorrect, got {target_protos[class_idx][proto_idx].shape[0]}, expected {num_features} feature(s)'
-            assert target_protos[class_idx][proto_idx].shape[1] == proto_len, f'Length of target proto {proto_idx} for class {class_idx} is incorrect, expected {proto_len} time steps'
+            assert target_protos[class_idx][proto_idx].shape[0] == num_features, f'Number of features in target proto {proto_idx} for class {class_idx} is incorrect, expected {num_features} feature(s), got {target_protos[class_idx][proto_idx].shape[0]}'
+            assert target_protos[class_idx][proto_idx].shape[1] == rf_size, f'Length of target proto {proto_idx} for class {class_idx} is incorrect, expected {rf_size} time steps, got {target_protos[class_idx][proto_idx].shape[1]}'
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
     try:
