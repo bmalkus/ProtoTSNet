@@ -26,6 +26,7 @@ class ProtoTSNet(nn.Module):
         num_classes,
         init_weights=True,
         prototype_activation_function='log',
+        target_protos=None,
     ):
 
         super(ProtoTSNet, self).__init__()
@@ -73,6 +74,18 @@ class ProtoTSNet(nn.Module):
         self.prototype_vectors = nn.Parameter(
             torch.rand(self.proto_layer_shape), requires_grad=True
         )
+
+        self.target_protos_vectors = nn.Parameter(torch.zeros((proto_num, num_features, proto_len_latent)), requires_grad=False)
+        self.target_protos_mask = nn.Parameter(torch.zeros((self.num_prototypes,)), requires_grad=False)
+        self.has_target_protos = False
+        if target_protos is not None:
+            self.has_target_protos = True
+            for cls_idx in range(self.num_classes):
+                if cls_idx not in target_protos:
+                    continue
+                for proto_idx in target_protos[cls_idx]:
+                    self.target_protos_mask[cls_idx * num_prototypes_per_class + proto_idx] = 1
+                    self.target_protos_vectors[cls_idx * num_prototypes_per_class + proto_idx] = torch.from_numpy(target_protos[cls_idx][proto_idx]).unsqueeze(0)
 
         # do not make this just a tensor, since it will not be moved automatically to gpu
         self.ones = nn.Parameter(torch.ones(self.proto_layer_shape), requires_grad=False)

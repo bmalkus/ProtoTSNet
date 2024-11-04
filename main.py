@@ -56,6 +56,7 @@ parser.add_argument('--proto_len', help='Prototype length (in time steps)', requ
 parser.add_argument('--reception', help='Fraction of significant features', required=False, default=None)
 parser.add_argument('--l1_addon_coeff', type=float, help='L1 regularization coefficient for feature importance layer', required=False, default=1e-3)
 parser.add_argument('--l1_coeff', type=float, help='L1 regularization coefficient', required=False, default=1e-3)
+parser.add_argument('--l2_target_protos_coeff', type=float, help='L2 regularization coefficient for target protos', required=False, default=1e-3)
 parser.add_argument('--clst_coeff', type=float, help='Cluster separation coefficient', required=False, default=0.08)
 parser.add_argument('--sep_coeff', type=float, help='Separation coefficient', required=False, default=-0.008)
 parser.add_argument('--param_selection', action='store_true', help='Run hyperparameter selection', required=False, default=False)
@@ -98,13 +99,36 @@ push_epochs = range(push_start_epoch, 1000, args.push_epochs_interval)  # which 
 num_last_layer_epochs = args.last_layer_epochs  # how many epochs to train the last layer (prototypes <-> class mapping)
 epochs = args.epochs  # overall number of epochs (PUSH + last layer "epochs" count as one epoch here), set it so that the training ends with PUSH
 
-coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff, clst=args.clst_coeff, sep=args.sep_coeff)  # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
+coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff, clst=args.clst_coeff, sep=args.sep_coeff, l2_target_protos=args.l2_target_protos_coeff)  # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
 
 if num_features == 1:
     # this is a univariate dataset, no point in using permuting encoder
     permuting_encoder = False
 elif not args.reception:
     parser.error('Reception must be specified for multivariate datasets')
+
+target_protos = {}
+if args.target_protos_dir is not None:
+    target_protos_dir = Path(args.target_protos_dir)
+    for class_idx in range(num_classes):
+        target_protos[class_idx] = {}
+        for proto_idx in range(args.protos_per_class):
+            filepath = target_protos_dir / f'class_{class_idx}_proto_{proto_idx}.txt'
+            if not filepath.exists():
+                break
+            target_proto = np.loadtxt(filepath)
+            if len(target_proto.shape) == 1:
+                target_proto = target_proto.reshape(1, -1)
+            target_proto = scaler.transform(target_proto.transpose(1, 0)).transpose(1, 0)
+            target_protos[class_idx][proto_idx] = target_proto
+
+        print(f'Class {class_idx}: {len(target_protos[class_idx])} target proto(s)')
+
+    for class_idx in range(num_classes):
+        assert len(target_protos[class_idx]) <= args.protos_per_class, f'Number of protos for class {class_idx} to large, expected at most {args.protos_per_class} prototypes'
+        for proto_idx in range(len(target_protos[class_idx])):
+            assert target_protos[class_idx][proto_idx].shape[0] == num_features, f'Number of features in target proto {proto_idx} for class {class_idx} is incorrect, got {target_protos[class_idx][proto_idx].shape[0]}, expected {num_features} feature(s)'
+            assert target_protos[class_idx][proto_idx].shape[1] == proto_len, f'Length of target proto {proto_idx} for class {class_idx} is incorrect, expected {proto_len} time steps'
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
     try:
@@ -140,6 +164,7 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
             proto_len_latent=proto_len,
             num_classes=num_classes,
             prototype_activation_function='log',
+            target_protos=target_protos
         )
 
         def lr_sched_setup(optimizer, epoch_type):
