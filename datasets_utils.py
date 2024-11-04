@@ -21,13 +21,18 @@ class TSCDataset():
         return self.X[idx], self.y[idx]
 
 
-def transform_ts_data(X, scaler, scale_separately=False):
+def transform_ts_data(X, scaler, scale_separately=False, fit=True):
     if scale_separately:
-        X = scaler.fit_transform(X.transpose(0, 2, 1).reshape(-1, X.shape[1])).reshape(-1, X.shape[2], X.shape[1]).transpose(0, 2, 1)
-        return X
+        if fit:
+            X = scaler.fit_transform(X.transpose(0, 2, 1).reshape(-1, X.shape[1])).reshape(-1, X.shape[2], X.shape[1]).transpose(0, 2, 1)
+        else:
+            X = scaler.transform(X.transpose(0, 2, 1).reshape(-1, X.shape[1])).reshape(-1, X.shape[2], X.shape[1]).transpose(0, 2, 1)
     else:
-        X = scaler.fit_transform(X.reshape(-1, 1)).reshape(X.shape)
-        return X
+        if fit:
+            X = scaler.fit_transform(X.reshape(-1, 1)).reshape(X.shape)
+        else:
+            X = scaler.transform(X.reshape(-1, 1)).reshape(X.shape)
+    return X
 
 
 def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None, scale_separately=False) -> Tuple[TSCDataset, TSCDataset]:
@@ -68,10 +73,10 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
         trainX, valX, trainy, valy = train_test_split(trainX, trainy, test_size=val_size)
 
     if scaler:
-        trainX = transform_ts_data(trainX, scaler, scale_separately)
+        trainX = transform_ts_data(trainX, scaler, scale_separately, fit=True)
         if val_size:
-            valX = transform_ts_data(valX, scaler, scale_separately)
-        testX = transform_ts_data(testX, scaler, scale_separately)
+            valX = transform_ts_data(valX, scaler, scale_separately, fit=False)
+        testX = transform_ts_data(testX, scaler, scale_separately, fit=False)
 
     if val_size:
         return TSCDataset(trainX, trainy), TSCDataset(valX, valy), TSCDataset(testX, testy)

@@ -71,7 +71,8 @@ experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=args.verbose)
 
 log(f'Loading dataset {ds_name}...', flush=True, display=True)
-train_ds, test_ds = ds_load(datasets_path, ds_name, scaler=StandardScaler())
+scaler = StandardScaler()
+train_ds, test_ds = ds_load(datasets_path, ds_name, scaler=scaler)
 
 # read best_params.csv
 best_params = pd.read_csv('best_params.csv', index_col=0)
@@ -174,7 +175,7 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
 
         test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)
         confusion_matrix = torch.zeros(ptsnet.num_classes, ptsnet.num_classes)
-        for i, (image, label) in enumerate(test_loader):
+        for _, (image, label) in enumerate(test_loader):
             output, _ = ptsnet(image.to(device))
             confusion_matrix += multiclass_confusion_matrix(output.to('cpu'), label, num_classes=output.shape[1])
         np.savetxt(experiment_dir / 'confusion_matrix.txt', confusion_matrix.numpy(), fmt='%4d')
