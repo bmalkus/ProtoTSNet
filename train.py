@@ -15,7 +15,7 @@ from model import ProtoTSNet
 
 EpochType = Enum('EpochType', 'WARM,JOINT,PUSH,LAST_LAYER')
 
-ProtoTSCoeffs = namedtuple('ProtoTSCoeffs', 'crs_ent,clst,sep,l1,l1_addon', defaults=(1,0,0,0,0))
+ProtoTSCoeffs = namedtuple('ProtoTSCoeffs', 'crs_ent,clst,sep,l1,l1_addon,l2_target_protos', defaults=(1,0,0,0,0))
 
 
 def train_prototsnet(
