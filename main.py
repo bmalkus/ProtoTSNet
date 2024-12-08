@@ -10,12 +10,13 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.utils.data
-from autoencoder import PermutingConvAutoencoder, RegularConvAutoencoder, train_autoencoder
-from datasets_utils import TSCDataset, ds_load
-from model import ProtoTSNet
 from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from torcheval.metrics.functional import multiclass_confusion_matrix
+
+from autoencoder import PermutingConvAutoencoder, RegularConvAutoencoder, train_autoencoder
+from datasets_utils import TSCDataset, ds_load
+from model import ProtoTSNet
 from train import EpochType, ProtoTSCoeffs, create_logger, train_prototsnet
 
 device = torch.device("cuda")
@@ -43,8 +44,8 @@ def experiment_setup(experiment_subpath):
 parser = argparse.ArgumentParser(description="Run experiment with specified dataset and experiment directory.")
 parser.add_argument("--dataset", type=str, required=True, help="Name of the dataset to use")
 parser.add_argument("--experiment_name", type=str, required=True, help="Directory to save experiment results")
-parser.add_argument("--no-permuting_encoder", action="store_true", help="Use permuting encoder", required=False)
-parser.add_argument("--no-encoder_pretraining", action="store_true", help="Train encoder before ProtoTSNet", required=False)
+parser.add_argument("--no_permuting_encoder", action="store_true", help="Use permuting encoder", required=False)
+parser.add_argument("--no_encoder_pretraining", action="store_true", help="Train encoder before ProtoTSNet", required=False)
 parser.add_argument("--pretraining_epochs", type=int, help="Number of encoder pretraining epochs", required=False, default=50)
 parser.add_argument("--num_warm_epochs", type=int, help="Number of warm-up epochs", required=False, default=None)
 parser.add_argument("--push_start_epoch", type=int, help="Epoch to start pushing prototypes", required=False, default=110)
@@ -69,11 +70,13 @@ experiment_name = f"{args.experiment_name}/{ds_name}"
 experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=args.verbose)
 
-log(f"Loading dataset {ds_name}...", flush=True, display=True)
-train_ds, test_ds = ds_load(DATASETS_PATH, ds_name, scaler=StandardScaler())
-
 # read best_params.csv
 best_params = pd.read_csv("best_params.csv", index_col=0)
+
+skip_scaling = best_params.loc[ds_name, "skip_scaling"] == "T"
+
+log(f"Loading dataset {ds_name}...", flush=True, display=True)
+train_ds, test_ds = ds_load(DATASETS_PATH, ds_name, scaler=StandardScaler() if not skip_scaling else None)
 
 # hyperparameters
 
@@ -131,7 +134,7 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
         test_batch_size = 128
 
         do_batch_norm = True
-        if train_batch_size < 16:
+        if train_batch_size < 8:
             do_batch_norm = False
 
         whole_training_start = time.time()
