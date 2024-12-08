@@ -13,15 +13,15 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
     model.to(device)
 
-    for epoch in range(1, num_epochs+1):
+    for epoch in range(1, num_epochs + 1):
         # training
         model.train()
 
-        to_print = f'epoch: {epoch:4d}/{num_epochs} '
+        to_print = f"epoch: {epoch:4d}/{num_epochs} "
 
         n_examples = 0
         train_loss = 0
-        for (data, _) in train_loader:
+        for data, _ in train_loader:
             data = data.to(device)
 
             optimizer.zero_grad()
@@ -45,7 +45,7 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
             test_loss = 0
             n_examples = 0
             model.eval()
-            for (data, _) in test_loader:
+            for data, _ in test_loader:
                 data = data.to(device)
 
                 with torch.no_grad():
@@ -58,9 +58,8 @@ def train_autoencoder(model, train_loader, test_loader, device, log=print, num_e
 
             test_loss /= n_examples
 
-            to_print += f'mse loss: {test_loss:>5.4f}'
+            to_print += f"mse loss: {test_loss:>5.4f}"
             log(to_print, flush=True)
-
 
 
 class PermutingConvAutoencoder(nn.Module):
@@ -86,11 +85,14 @@ class PermutingConvAutoencoder(nn.Module):
                 if len(counter) == num_features and all(cnt != latent_features for cnt in counter.values()):
                     break
             else:
-                raise RuntimeError('Could not generate satisfying permutations, aborting')
+                raise RuntimeError("Could not generate satisfying permutations, aborting")
         finally:
             random.setstate(random_state)
 
-        self.masks = nn.Parameter(torch.FloatTensor([[1 if i in curr_receive_from else 0 for i in range(num_features)] for curr_receive_from in self.receive_from]), requires_grad=False)
+        self.masks = nn.Parameter(
+            torch.FloatTensor([[1 if i in curr_receive_from else 0 for i in range(num_features)] for curr_receive_from in self.receive_from]),
+            requires_grad=False,
+        )
 
         self.encoder = MultiEncoder(num_features, self.masks, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm)
 
@@ -98,15 +100,15 @@ class PermutingConvAutoencoder(nn.Module):
         layers = []
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(latent_features, 32, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(latent_features, 32, kernel_size=3, padding=1 if padding == "same" else 0, output_padding=0))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(32, 32, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(32, 32, kernel_size=5, padding=2 if padding == "same" else 0, output_padding=0))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(32, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(32, num_features, kernel_size=7, padding=3 if padding == "same" else 0, output_padding=0))
 
         self.decoder = nn.Sequential(*layers)
 
@@ -124,22 +126,33 @@ class MultiEncoder(nn.Module):
         self.num_branches = len(masks)
 
         layers = []
-        layers.append(nn.Conv1d(in_channels=num_features * self.num_branches, out_channels=16 * self.num_branches,
-                                kernel_size=7, padding=padding, groups=self.num_branches))
+        layers.append(
+            nn.Conv1d(
+                in_channels=num_features * self.num_branches,
+                out_channels=16 * self.num_branches,
+                kernel_size=7,
+                padding=padding,
+                groups=self.num_branches,
+            )
+        )
         if do_batch_norm:
             layers.append(nn.BatchNorm1d(16 * self.num_branches))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(nn.Conv1d(in_channels=16 * self.num_branches, out_channels=16 * self.num_branches,
-                                kernel_size=5, padding=padding, groups=self.num_branches))
+        layers.append(
+            nn.Conv1d(
+                in_channels=16 * self.num_branches, out_channels=16 * self.num_branches, kernel_size=5, padding=padding, groups=self.num_branches
+            )
+        )
         if do_batch_norm:
             layers.append(nn.BatchNorm1d(16 * self.num_branches))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(nn.Conv1d(in_channels=16 * self.num_branches, out_channels=self.num_branches,
-                                kernel_size=3, padding=padding, groups=self.num_branches))
+        layers.append(
+            nn.Conv1d(in_channels=16 * self.num_branches, out_channels=self.num_branches, kernel_size=3, padding=padding, groups=self.num_branches)
+        )
         if do_batch_norm:
             layers.append(nn.BatchNorm1d(self.num_branches))
         layers.append(nn.ReLU())
@@ -180,20 +193,22 @@ class RegularConvAutoencoder(nn.Module):
         self.do_max_pool = do_max_pool
         self.num_conv_filters = num_conv_filters
 
-        self.encoder = RegularConvEncoder(num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters)
+        self.encoder = RegularConvEncoder(
+            num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters
+        )
 
         layers = []
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(latent_features, num_conv_filters, kernel_size=3, padding=1 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(latent_features, num_conv_filters, kernel_size=3, padding=1 if padding == "same" else 0, output_padding=0))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(num_conv_filters, num_conv_filters, kernel_size=5, padding=2 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(num_conv_filters, num_conv_filters, kernel_size=5, padding=2 if padding == "same" else 0, output_padding=0))
         layers.append(nn.ReLU())
         if do_max_pool:
             layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(num_conv_filters, num_features, kernel_size=7, padding=3 if padding == 'same' else 0, output_padding=0))
+        layers.append(nn.ConvTranspose1d(num_conv_filters, num_features, kernel_size=7, padding=3 if padding == "same" else 0, output_padding=0))
 
         self.decoder = nn.Sequential(*layers)
 
@@ -206,7 +221,7 @@ class RegularConvAutoencoder(nn.Module):
             decoded = encoded
             for i, layer in enumerate(self.decoder):
                 if isinstance(layer, nn.MaxUnpool1d):
-                    decoded = layer(decoded, indices[i//3], output_size=sizes[i//3])
+                    decoded = layer(decoded, indices[i // 3], output_size=sizes[i // 3])
                 else:
                     decoded = layer(decoded)
         else:
