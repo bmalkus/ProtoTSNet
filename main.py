@@ -16,16 +16,82 @@ from sklearn.model_selection import StratifiedKFold
 from sklearn.preprocessing import StandardScaler
 from torcheval.metrics.functional import multiclass_confusion_matrix
 
+from artificial_protos_datasets import ArtificialProtos
 from autoencoder import PermutingConvAutoencoder, RegularConvAutoencoder, train_autoencoder
-from datasets_utils import TSCDataset, ds_load
+from datasets_utils import TSCDataset, ds_load, transform_ts_data
 from model import ProtoTSNet
 from train import EpochType, ProtoTSCoeffs, create_logger, train_prototsnet
 
 device = torch.device("cuda")
 # torch.cuda.set_per_process_memory_fraction(fraction=0.5, device=0)  # or 1, watch out for CUDA_VISIBLE_DEVICES
 
-# dataset in arff format should be put in the 'datasets/' directory (downloaded from timeseriesclassification.com)
-DATASETS_PATH = Path("datasets")
+
+# use this function to load your custom dataset
+def custom_dataset():
+    X_train = None
+    y_train = None
+    X_test = None
+    y_test = None
+    train_ds = TSCDataset(X_train, y_train)
+    val_ds = TSCDataset(X_val, y_val) if X_val is not None else None
+    test_ds = TSCDataset(X_test, y_test)
+    return train_ds, test_ds
+
+
+def pm_dataset(use_pm=True):
+    df = pd.read_csv("./datasets/PRSA_data_2010.1.1-2014.12.31.csv")
+    df["datetime"] = pd.to_datetime(df[["year", "month", "day", "hour"]])
+    df.set_index("datetime", inplace=True)
+    df = df.dropna()
+
+    day_counts = df.groupby(df.index.date).size()
+    full_days = day_counts[day_counts == 24].index
+    df = df[pd.Index(df.index.date).isin(full_days)]
+    wd = {
+        "cv": 0,
+        "NW": 1,
+        "NE": 2,
+        "SE": 3,
+    }
+    df["cbwd"] = df["cbwd"].map(wd)
+    # Extract the dates from the index
+    dates = df.index.date
+    unique_dates = set(dates)
+
+    xs = []
+    ys = []
+    for date in unique_dates:
+        next_day = date + pd.Timedelta(days=1)
+        if next_day in unique_dates and next_day.weekday() < 5:
+            next_day_8am = pd.Timestamp(next_day) + pd.Timedelta(hours=8)
+            data = df.loc[df.index.date == date, ["pm2.5", "DEWP", "TEMP", "PRES", "cbwd", "Iws", "Is", "Ir"]].to_numpy()
+            if not use_pm:
+                data = data[:, 1:]
+            pm_value = df.loc[next_day_8am, "pm2.5"]
+            xs.append(data)
+            # quantize pm2.5 according to US EPA standards
+            ys.append(
+                0 if pm_value < 12 else 1 if pm_value < 35.4 else 2 if pm_value < 55.4 else 3 if pm_value < 150.4 else 4 if pm_value < 250.4 else 5
+            )
+
+    X = np.array(xs, dtype=np.float32).transpose(0, 2, 1)
+    y = np.array(ys)
+    X_train = X[: int(0.7 * X.shape[0])]
+    y_train = y[: int(0.7 * X.shape[0])]
+    X_test = X[int(0.85 * X.shape[0]) :]
+    y_test = y[int(0.85 * X.shape[0]) :]
+    train_ds = TSCDataset(X_train, y_train)
+    test_ds = TSCDataset(X_test, y_test)
+    return train_ds, test_ds
+
+
+def artificial_dataset():
+    log(f"Preparing artificial dataset...", flush=True, display=True)
+    train_art = ArtificialProtos(1000, feature_noise_power=0.1, randomize_right_side=True)
+    train_ds = TSCDataset(train_art.X, train_art.y)
+    test_art = ArtificialProtos(100, feature_noise_power=0.1, randomize_right_side=True)
+    test_ds = TSCDataset(test_art.X, test_art.y)
+    return train_ds, test_ds
 
 
 def experiment_setup(experiment_subpath):
@@ -43,11 +109,22 @@ def experiment_setup(experiment_subpath):
     return experiment_dir
 
 
+def val_proto_len(proto_len):
+    flen = float(proto_len)
+    if flen < 0 or flen > 1:
+        parser.error("proto_len must be in range (0, 1]")
+    return flen
+
+
+# dataset in arff format should be put in the 'datasets/' directory (downloaded from timeseriesclassification.com)
+DATASETS_PATH = Path("datasets")
+
 parser = argparse.ArgumentParser(description="Run experiment with specified dataset and experiment directory.")
-parser.add_argument("--dataset", type=str, required=True, help="Name of the dataset to use")
+parser.add_argument("--uea_dataset", type=str, help="Use this if you want to run experiment on UEA dataset under datasets/ directory", required=False)
+parser.add_argument("--artificial_dataset", action="store_true", help="Run experiments on artificial dataset", required=False)
 parser.add_argument("--experiment_name", type=str, required=True, help="Directory to save experiment results")
-parser.add_argument("--no_permuting_encoder", action="store_true", help="Use permuting encoder", required=False)
-parser.add_argument("--no_encoder_pretraining", action="store_true", help="Train encoder before ProtoTSNet", required=False)
+parser.add_argument("--no_permuting_encoder", action="store_true", help="Do not use permuting encoder", required=False)
+parser.add_argument("--no_encoder_pretraining", action="store_true", help="Do not pretrain encoder before ProtoTSNet training", required=False)
 parser.add_argument("--pretraining_epochs", type=int, help="Number of encoder pretraining epochs", required=False, default=50)
 parser.add_argument("--num_warm_epochs", type=int, help="Number of warm-up epochs", required=False, default=None)
 parser.add_argument("--push_start_epoch", type=int, help="Epoch to start pushing prototypes", required=False, default=110)
@@ -55,7 +132,7 @@ parser.add_argument("--push_epochs_interval", type=int, help="Interval between p
 parser.add_argument("--last_layer_epochs", type=int, help="Number of epochs to train last layer", required=False, default=40)
 parser.add_argument("--epochs", type=int, help="Number of epochs to train", required=False, default=200)
 parser.add_argument("--proto_features", type=int, help="Number of latent features", required=False, default=32)
-parser.add_argument("--proto_len", type=float, help="Prototype length (0-1 range, fraction of time serie length)", required=False, default=None)
+parser.add_argument("--proto_len", type=val_proto_len, help="Prototype length (0-1 range, fraction of series length)", required=False, default=None)
 parser.add_argument("--protos_per_class", type=int, help="Number of prototypes for each class", required=False, default=10)
 parser.add_argument("--reception", type=float, help="Fraction of significant features", required=False, default=None)
 parser.add_argument("--l1_addon_coeff", type=float, help="L1 regularization coefficient for feature importance layer", required=False, default=1e-3)
@@ -64,21 +141,51 @@ parser.add_argument("--clst_coeff", type=float, help="Cluster separation coeffic
 parser.add_argument("--sep_coeff", type=float, help="Separation coefficient", required=False, default=-0.008)
 parser.add_argument("--param_selection", action="store_true", help="Run hyperparameter selection", required=False, default=False)
 parser.add_argument("--verbose", action="store_true", help="Verbose output", required=False, default=False)
+parser.add_argument("--skip_scaling", action="store_true", help="Skip scaling of the dataset", required=False, default=False)
 args = parser.parse_args()
 
-ds_name = args.dataset
+ds_name = args.uea_dataset
 
-experiment_name = f"{args.experiment_name}/{ds_name}"
+if ds_name is not None:
+    # read best_params.csv
+    try:
+        best_params = pd.read_csv("best_params.csv", index_col=0)
+    except Exception as e:
+        best_params = None
+else:
+    best_params = None
+
+if best_params is None:
+    if not args.proto_len or not args.reception:
+        parser.error("Prototype length and reception must be provided for non-UEA datasets, or when best_params.csv is missing")
+
+experiment_name = f"{args.experiment_name}/{ds_name}" if ds_name is not None else args.experiment_name
 experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=args.verbose)
 
-# read best_params.csv
-best_params = pd.read_csv("best_params.csv", index_col=0)
+if args.skip_scaling:
+    skip_scaling = True
+elif best_params is not None:
+    skip_scaling = best_params.loc[ds_name, "skip_scaling"] == "T"
+else:
+    skip_scaling = False
 
-skip_scaling = best_params.loc[ds_name, "skip_scaling"] == "T"
+if ds_name is not None:
+    log(f"Loading dataset {ds_name}...", flush=True, display=True)
+    train_ds, test_ds = ds_load(DATASETS_PATH, ds_name)
+elif args.artificial_dataset:
+    train_ds, test_ds = artificial_dataset()
+else:
+    log(f"Running on custom dataset", flush=True, display=True)
+    train_ds, test_ds = pm_dataset(use_pm=False)
 
-log(f"Loading dataset {ds_name}...", flush=True, display=True)
-train_ds, test_ds = ds_load(DATASETS_PATH, ds_name, scaler=StandardScaler() if not skip_scaling else None)
+if not skip_scaling:
+    log(f"Scaling dataset...", flush=True, display=True)
+    scaler = StandardScaler()
+    train_ds.X = transform_ts_data(train_ds.X, scaler)
+    test_ds.X = transform_ts_data(test_ds.X, scaler, fit=False)
+else:
+    log(f"Skipping scaling of the dataset", flush=True, display=True)
 
 # hyperparameters
 
@@ -231,7 +338,7 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
 if not args.param_selection:
     setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len)
 else:
-    log(f"Running hyperparameter selection for {ds_name}...", flush=True, display=True)
+    log(f"Running hyperparameter selection for {ds_name if ds_name else 'custom dataset'}...", flush=True, display=True)
 
     kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     if ds_name == "StandWalkJump":

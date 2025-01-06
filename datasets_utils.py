@@ -6,7 +6,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
 
-class TSCDataset():
+class TSCDataset:
     X: np.ndarray
     y: np.ndarray
 
@@ -31,8 +31,8 @@ def transform_ts_data(X, scaler, scale_separately=False):
 
 
 def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None, scale_separately=False) -> Tuple[TSCDataset, TSCDataset]:
-    train_file = datasets_path / ds_name / f'{ds_name}_TRAIN.arff'
-    test_file = datasets_path / ds_name / f'{ds_name}_TEST.arff'
+    train_file = datasets_path / ds_name / f"{ds_name}_TRAIN.arff"
+    test_file = datasets_path / ds_name / f"{ds_name}_TEST.arff"
     label_encoder = LabelEncoder()
 
     def arff_to_numpy(file_path):
@@ -46,7 +46,7 @@ def ds_load(datasets_path, ds_name, train_size=None, val_size=None, scaler=None,
                 row = row.tolist()
                 x = np.array(row[:-1]).reshape(1, -1)
                 label = row[-1]
-            x = np.array(x.tolist(), dtype='float32')
+            x = np.array(x.tolist(), dtype="float32")
             X.append(x)
             y.append(label)
         return np.nan_to_num(np.stack(X, axis=0), 0), np.stack(y, axis=0)
