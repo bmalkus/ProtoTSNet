@@ -6,11 +6,11 @@ from typing import Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from receptive_field import compute_proto_layer_rf_info
 
 from autoencoder import MultiEncoder, RegularConvEncoder
+from receptive_field import compute_proto_layer_rf_info
 
-ProtoLayerShape = namedtuple('ProtoLayerShape', ['num_prototypes', 'latent_features', 'latent_proto_len'])
+ProtoLayerShape = namedtuple("ProtoLayerShape", ["num_prototypes", "latent_features", "latent_proto_len"])
 
 
 class ProtoTSNet(nn.Module):
@@ -25,7 +25,7 @@ class ProtoTSNet(nn.Module):
         proto_len_latent,
         num_classes,
         init_weights=True,
-        prototype_activation_function='log',
+        prototype_activation_function="log",
     ):
 
         super(ProtoTSNet, self).__init__()
@@ -45,11 +45,10 @@ class ProtoTSNet(nn.Module):
         # Here we are initializing the class identities of the prototypes
         # Without domain specific knowledge we allocate the same number of
         # prototypes for each class
-        assert(self.num_prototypes % self.num_classes == 0)
+        assert self.num_prototypes % self.num_classes == 0
 
         # a onehot indication matrix for each prototype's class identity
-        self.prototype_class_identity = torch.zeros(self.num_prototypes,
-                                                    self.num_classes)
+        self.prototype_class_identity = torch.zeros(self.num_prototypes, self.num_classes)
         num_prototypes_per_class = self.num_prototypes // self.num_classes
         for j in range(self.num_prototypes):
             self.prototype_class_identity[j, j // num_prototypes_per_class] = 1
@@ -65,14 +64,10 @@ class ProtoTSNet(nn.Module):
         )
 
         self.proto_layer_rf_info = compute_proto_layer_rf_info(
-            ts_len=self.ts_sample_len,
-            latent_proto_len=self.proto_layer_shape.latent_proto_len,
-            layers=self.features.encoder
+            ts_len=self.ts_sample_len, latent_proto_len=self.proto_layer_shape.latent_proto_len, layers=self.features.encoder
         )
 
-        self.prototype_vectors = nn.Parameter(
-            torch.rand(self.proto_layer_shape), requires_grad=True
-        )
+        self.prototype_vectors = nn.Parameter(torch.rand(self.proto_layer_shape), requires_grad=True)
 
         # do not make this just a tensor, since it will not be moved automatically to gpu
         self.ones = nn.Parameter(torch.ones(self.proto_layer_shape), requires_grad=False)
@@ -90,17 +85,17 @@ class ProtoTSNet(nn.Module):
 
     def _l2_convolution(self, x):
         # apply self.prototype_vectors as l2-convolution filters on input x
-        x2 = x ** 2
+        x2 = x**2
         x2_patch_sum = F.conv1d(input=x2, weight=self.ones)
 
-        p2 = self.prototype_vectors ** 2
+        p2 = self.prototype_vectors**2
         p2 = torch.sum(p2, dim=(1, 2))
         # p2 is a vector of shape (num_prototypes,)
         # then we reshape it to (num_prototypes, 1)
         p2_reshape = p2.view(-1, 1)
 
         xp = F.conv1d(input=x, weight=self.prototype_vectors)
-        intermediate_result = - 2 * xp + p2_reshape  # use broadcast
+        intermediate_result = -2 * xp + p2_reshape  # use broadcast
         # x2_patch_sum and intermediate_result are of the same shape
         distances = F.relu(x2_patch_sum + intermediate_result)
 
@@ -112,9 +107,9 @@ class ProtoTSNet(nn.Module):
         return distances
 
     def distance_2_similarity(self, distances):
-        if self.prototype_activation_function == 'log':
+        if self.prototype_activation_function == "log":
             return torch.log((distances + 1) / (distances + self.epsilon))
-        elif self.prototype_activation_function == 'linear':
+        elif self.prototype_activation_function == "linear":
             return -distances
         else:
             return self.prototype_activation_function(distances)
@@ -122,15 +117,14 @@ class ProtoTSNet(nn.Module):
     def forward(self, x):
         distances = self.prototype_distances(x)
         # global min pooling
-        min_distances = -F.max_pool1d(-distances,
-                                      kernel_size=(distances.size()[2],))
+        min_distances = -F.max_pool1d(-distances, kernel_size=(distances.size()[2],))
         min_distances = min_distances.view(-1, self.num_prototypes)
         prototype_activations = self.distance_2_similarity(min_distances)
         logits = self.last_layer(prototype_activations)
         return logits, min_distances
 
     def push_forward(self, x):
-        '''this method is needed for the pushing operation'''
+        """this method is needed for the pushing operation"""
         conv_output = self.conv_features(x)
         distances = self._l2_convolution(conv_output)
         return conv_output, distances
@@ -141,13 +135,13 @@ class ProtoTSNet(nn.Module):
 
         correct_class_connection = 1
         self.last_layer.weight.data.copy_(
-            correct_class_connection * positive_one_weights_locations
-            + incorrect_class_connection * negative_one_weights_locations)
+            correct_class_connection * positive_one_weights_locations + incorrect_class_connection * negative_one_weights_locations
+        )
 
     def _initialize_weights(self):
         for m in itertools.chain(self.features.modules(), self.add_on_layers.modules()):
             if isinstance(m, nn.Conv1d):
-                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                nn.init.kaiming_normal_(m.weight, mode="fan_out", nonlinearity="relu")
 
                 if m.bias is not None:
                     nn.init.constant_(m.bias, 0)
