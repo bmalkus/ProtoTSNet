@@ -191,6 +191,7 @@ class RegularConvAutoencoder(nn.Module):
     def __init__(self, num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True, num_conv_filters=128):
         super(RegularConvAutoencoder, self).__init__()
         self.do_max_pool = do_max_pool
+        self.return_indices = do_max_pool
         self.num_conv_filters = num_conv_filters
 
         self.encoder = RegularConvEncoder(
