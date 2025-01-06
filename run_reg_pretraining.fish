@@ -2,12 +2,12 @@
 
 set datasets (cat ../DataDimensionsPipe.csv | tail -n+2 | cut -d\| -f1)
 
-set EXP_NAME NoPretrainingBest
+set EXP_NAME RegularEncPretrainingBest
 
 for ds in $datasets
   for run in (seq 1 5)
     if ! test -e experiments/$EXP_NAME/run-$run/$ds
-      python ./main.py --uea_dataset $ds --experiment_name $EXP_NAME/run-$run --no_encoder_pretraining
+      python ./main.py --uea_dataset $ds --experiment_name $EXP_NAME/run-$run --no_permuting_encoder
     end
   end
 end
