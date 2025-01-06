@@ -33,7 +33,7 @@ def train_prototsnet(
     features_lr=1e-3,  # effective only if learning_rates is None
     lr_sched_setup=None,
     custom_hooks=None,
-    early_stopper=None,
+    stop_condition=None,
     log=None,
     add_params_to_log={}
 ):
@@ -103,7 +103,7 @@ def train_prototsnet(
             lr_sched_setup=lr_sched_setup,
             class_specific=class_specific,
             proto_save_dir=proto_dir,
-            early_stopper=early_stopper,
+            stop_condition=stop_condition,
             hooks=[
                 lambda t,_: t.dump_stats(experiment_dir / 'stats.json'),
                 get_verbose_logger()
@@ -238,7 +238,7 @@ class ProtoTSNetTrainer:
         lr_sched_setup=None,
         class_specific=True,
         proto_save_dir=None,
-        early_stopper=None,
+        stop_condition=None,
         hooks=None,
         log=print,
     ):
@@ -257,7 +257,7 @@ class ProtoTSNetTrainer:
 
         self.proto_save_dir = proto_save_dir
 
-        self.early_stopper = early_stopper
+        self.stop_condition = stop_condition
 
         self.hooks = hooks
         if self.hooks is None:
@@ -588,8 +588,6 @@ class ProtoTSNetTrainer:
                 if not self.logged_push_condition_met:
                     self.log(f'First push epoch condition met at epoch {self.curr_epoch}')
                     self.logged_push_condition_met = True
-                    if self.early_stopper is not None:
-                        self.early_stopper.stop_waiting()
                 return True
             return False
         return self.curr_epoch >= self.push_start
@@ -621,10 +619,6 @@ class ProtoTSNetTrainer:
 
             self.curr_epoch += 1
             self.curr_true_epoch += 1
-
-            if self.early_stopper and self.early_stopper(self):
-                self.log(f'Validation loss did not improve in {self.early_stopper.patience} epochs, aborting')
-                break
 
         t_end = time.time()
         self.log(f'Finished training in {t_end - t_start:.2f} seconds')
