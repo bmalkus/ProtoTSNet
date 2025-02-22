@@ -58,7 +58,7 @@ Run experiment on artificial dataset:
 python main.py --artificial_dataset --experiment_name artificial_dataset_exp --proto_len 0.2 --reception 0.75
 ```
 
-Run hyperparameter optimiziation on a custom dataset (after implementing the load function):
+Run hyperparameter optimization on a custom dataset (after implementing the load function):
 ```
 python main.py --experiment_name custom_dataset_exp --param_selection
 ```
@@ -76,16 +76,16 @@ run_no_pretraining.sh
 run_reg_pretraining.sh
 ```
 
-These scripts automate running experiments on multiple UEA datasets. The scripts can be run as is, without any parameters:
+These scripts automate running experiments on all of the UEA datasets. The scripts can be run as is, without any parameters, for example:
 ```bash
-./run_no_pretraining.sh  # or any other script
+./run_reg.sh  # runs ProtoTSNet variant with regular encoder and no pretraining
 ```
 
 ### Key Parameters
 
-Selected parameters are listed below, use `--help` to check all of them.
+Selected parameters are listed below, run `python main.py --help` to check all of them.
 
-- `--experiment_name <name>`: Directory to save experiment results
+- `--experiment_name <name>`: Set experiment name (directory with such name will be created under `experiments/` directory in the repo, see [experiment output section](#experiment-output) for more details)
 - `--proto_len <float>`: Prototype length (0-1 range, fraction of series length)
 - `--reception <float>`: Fraction of significant features (0-1 range)
 - `--protos_per_class <num>`: Number of prototypes for each class (default: 10)
@@ -129,7 +129,7 @@ For UEA datasets, optimal hyperparameters are provided in `best_params.csv`. For
 >    - Each PUSH is followed by `--last_layer_epochs` of last layer training
 >    - Both PUSH and last layer training count as a single epoch in the main phase
 >
-> This counting method follows the ProtoPNet approach, though it might seem counterintuitive at first.
+> This counting method follows the ProtoPNet approach, though it might seem counter-intuitive at first.
 
 ### Experiment Output
 
@@ -139,7 +139,7 @@ When you run an experiment, a directory `experiments/<experiment_name>` is creat
 - `protos` subdirectory: Prototypes along with prototypical parts from the last push epoch of the training
 - `stats.json`: Statistics from each epoch of training
 - `log.txt`: Training logs
-- `results.json`, `confusion_matrix.txt`: Accuracy, training time, and confusion matrix (written in numpy text format)
+- `results.json`, `confusion_matrix.txt`: Accuracy, training time, and confusion matrix (written in the numpy text format)
 
 ## Project Structure
 
@@ -147,7 +147,7 @@ The codebase consists of the following files:
 
 - `autoencoder.py`: Implementations of the encoder architectures (both permuting and regular), autoencoder, and pretraining utilities.
 - `model.py`: Implementation of the ProtoTSNet architecture.
-- `push.py`: Implementation of the prototype push phase, where prototypes are pushed onto actual subsequences from the training set.
+- `push.py`: Implementation of the prototype push phase, where prototypes are pushed onto actual sub-sequences from the training set.
 - `train.py`: Training infrastructure, including:
  - `ProtoTSNetTrainer` class managing the training process,
  - statistics gathering and logging,
