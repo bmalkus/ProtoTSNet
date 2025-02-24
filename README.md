@@ -1,6 +1,6 @@
 # ProtoTSNet: Interpretable Multivariate Time Series Classification With Prototypical Parts
 
-This repository accompanies our paper describing ProtoTSNet, an interpretable approach for multivariate time series classification: *Interpretable Multivariate Time Series Classification With Prototypical Parts* (under review).
+This repository accompanies our paper describing ProtoTSNet titled *ProtoTSNet: Interpretable Multivariate Time Series Classification With Prototypical Parts*.
 
 It contains an implementation of ProtoTSNet, a new architecture for multivariate time series classification based on the prototypical parts approach of ProtoPNet. Some code fragments are adapted from the [ProtoPNet implementation](https://github.com/cfchen-duke/ProtoPNet).
 
@@ -11,17 +11,18 @@ Architecture of the model:
 ## Prerequisites
 
 The experiments were conducted using:
-- Python 3.11.7
+- Python 3.11
 - PyTorch 2.2.0
 - CUDA toolkit 11.8
 
 To get started:
 1. Clone the repository.
+2. Create a virtual environment with Python 3.11 (preferably - it will likely work on other versions, but this one is tested).
 2. Install the requirements:
 
 ```sh
 # Option 1: CUDA 11.8
-pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu118
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu118
 
 # Option 2: Latest CUDA version for the PyTorch version we use (if Option 1 causes issues)
 pip install -r requirements.txt
@@ -40,7 +41,7 @@ mv Multivariate_arff/* .
 ```
 - Artificial Dataset. Implementation provided in `artificial_protos_datasets.py`, used in the artificial dataset experiments described in the paper.
 
-The code also supports a custom dataset, but it has to be loaded appropriately in the code. See example loading function in `main.py` as a template. Implement your own loading function following the same interface.
+The code also supports a custom dataset, but an appropriate loading function has to be added in the code. See example of such function in `main.py` as a template. Implement your own loading function following the same interface.
 
 ## Usage
 
@@ -120,14 +121,14 @@ For UEA datasets, optimal hyperparameters are provided in `best_params.csv`. For
 - `--last_layer_epochs <num>`: Number of epochs to train last layer (default: 40)
 
 > [!IMPORTANT]
-> The epoch counting approach includes several distinct training phases:
+> The epoch counting approach handles different training phases differently:
 > 1. *Pretraining phase* (`--pretraining_epochs`):
 >    Initial encoder pretraining, separate from the main training.
 > 2. *Main training phase* (`--epochs`):
->    - Includes WARM epochs (frozen encoder) and JOINT epochs (all layers trained)
->    - Every 30 epochs after `--push_start_epoch`, a PUSH operation occurs
->    - Each PUSH is followed by `--last_layer_epochs` of last layer training
->    - Both PUSH and last layer training count as a single epoch in the main phase
+>    - Includes WARM epochs (frozen encoder) and JOINT epochs (all layers trained).
+>    - Every 30 epochs after `--push_start_epoch`, a PUSH operation occurs.
+>    - Each PUSH is followed by `--last_layer_epochs` of last layer training.
+>    - Both PUSH and last layer training count as a single epoch in the main phase.
 >
 > This counting method follows the ProtoPNet approach, though it might seem counter-intuitive at first.
 
