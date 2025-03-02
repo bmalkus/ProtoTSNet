@@ -138,7 +138,9 @@ parser.add_argument("--push_epochs_interval", type=int, help="Interval between p
 parser.add_argument("--last_layer_epochs", type=int, help="Number of epochs to train last layer", required=False, default=40)
 parser.add_argument("--epochs", type=int, help="Number of epochs to train", required=False, default=200)
 parser.add_argument("--proto_features", type=int, help="Number of latent features", required=False, default=32)
-parser.add_argument("--proto_len", type=validate_proto_len, help="Prototype length (0-1 range, fraction of series length)", required=False, default=None)
+parser.add_argument(
+    "--proto_len", type=validate_proto_len, help="Prototype length (0-1 range, fraction of series length)", required=False, default=None
+)
 parser.add_argument("--protos_per_class", type=int, help="Number of prototypes for each class", required=False, default=10)
 parser.add_argument("--reception", type=float, help="Fraction of significant features", required=False, default=None)
 parser.add_argument("--l1_addon_coeff", type=float, help="L1 regularization coefficient for feature importance layer", required=False, default=1e-3)
@@ -162,8 +164,8 @@ else:
     best_params = None
 
 if best_params is None:
-    if not args.proto_len or not args.reception:
-        parser.error("Prototype length and reception must be provided for non-UEA datasets, or when best_params.csv is missing")
+    if not args.proto_len:
+        parser.error("Prototype length must be provided for non-UEA datasets or when best_params.csv is missing")
 
 experiment_name = f"{args.experiment_name}/{ds_name}" if ds_name is not None else args.experiment_name
 experiment_dir = experiment_setup(experiment_name)
@@ -177,12 +179,12 @@ else:
     skip_scaling = False
 
 if ds_name is not None:
-    log(f"Loading dataset {ds_name}...", flush=True, display=True)
+    log(f"Loading UEA dataset {ds_name}...", flush=True, display=True)
     train_ds, test_ds = ds_load(DATASETS_PATH, ds_name)
 elif args.artificial_dataset:
     train_ds, test_ds = artificial_dataset()
 else:
-    log(f"Running on custom dataset", flush=True, display=True)
+    log(f"Running on custom dataset, loading...", flush=True, display=True)
     train_ds, test_ds = pm_dataset(use_pm=False)
 
 if not skip_scaling:
@@ -205,7 +207,7 @@ proto_len = float(best_params.loc[ds_name, "proto_len"]) if args.proto_len is No
 proto_features = args.proto_features
 
 # estimate for the fraction of significant features, better to underestimate than overestimate
-reception = float(best_params.loc[ds_name, "reception"]) if args.reception is None else args.reception
+reception = float(best_params.loc[ds_name, "reception"]) if args.reception is None and best_params is not None else args.reception
 permuting_encoder = not args.no_permuting_encoder
 encoder_pretraining = not args.no_encoder_pretraining
 
@@ -238,6 +240,8 @@ if isinstance(proto_len, float):
 if num_features == 1:
     # this is an univariate dataset, no point in using permuting encoder
     permuting_encoder = False
+elif not reception and permuting_encoder:
+    parser.error("Reception must be provided for non-UEA datasets when using permuting encoder")
 
 
 def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len):
