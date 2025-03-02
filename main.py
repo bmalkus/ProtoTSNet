@@ -152,9 +152,9 @@ parser.add_argument("--verbose", action="store_true", help="Verbose output", req
 parser.add_argument("--skip_scaling", action="store_true", help="Skip scaling of the dataset", required=False, default=False)
 args = parser.parse_args()
 
-ds_name = args.uea_dataset
+uea_dataset = args.uea_dataset
 
-if ds_name is not None:
+if uea_dataset is not None:
     # read best_params.csv
     try:
         best_params = pd.read_csv("best_params.csv", index_col=0)
@@ -167,20 +167,20 @@ if best_params is None:
     if not args.proto_len:
         parser.error("Prototype length must be provided for non-UEA datasets or when best_params.csv is missing")
 
-experiment_name = f"{args.experiment_name}/{ds_name}" if ds_name is not None else args.experiment_name
+experiment_name = f"{args.experiment_name}/{uea_dataset}" if uea_dataset is not None else args.experiment_name
 experiment_dir = experiment_setup(experiment_name)
 log, logclose = create_logger(experiment_dir / "log.txt", display=args.verbose)
 
 if args.skip_scaling:
     skip_scaling = True
 elif best_params is not None:
-    skip_scaling = best_params.loc[ds_name, "skip_scaling"] == "T"
+    skip_scaling = best_params.loc[uea_dataset, "skip_scaling"] == "T"
 else:
     skip_scaling = False
 
-if ds_name is not None:
-    log(f"Loading UEA dataset {ds_name}...", flush=True, display=True)
-    train_ds, test_ds = ds_load(DATASETS_PATH, ds_name)
+if uea_dataset is not None:
+    log(f"Loading UEA dataset {uea_dataset}...", flush=True, display=True)
+    train_ds, test_ds = ds_load(DATASETS_PATH, uea_dataset)
 elif args.artificial_dataset:
     train_ds, test_ds = artificial_dataset()
 else:
@@ -201,13 +201,13 @@ else:
 protos_per_class = args.protos_per_class
 
 # prototype length (number of time steps) - it is latent space length, so due to receptive field in the input space it is longer
-proto_len = float(best_params.loc[ds_name, "proto_len"]) if args.proto_len is None else args.proto_len
+proto_len = float(best_params.loc[uea_dataset, "proto_len"]) if args.proto_len is None else args.proto_len
 
 # number of latent features (dimensions) that input is encoded to
 proto_features = args.proto_features
 
 # estimate for the fraction of significant features, better to underestimate than overestimate
-reception = float(best_params.loc[ds_name, "reception"]) if args.reception is None and best_params is not None else args.reception
+reception = float(best_params.loc[uea_dataset, "reception"]) if args.reception is None and best_params is not None else args.reception
 permuting_encoder = not args.no_permuting_encoder
 encoder_pretraining = not args.no_encoder_pretraining
 
@@ -349,10 +349,10 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
 if not args.param_selection:
     setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, test_ds, reception, proto_len)
 else:
-    log(f"Running hyperparameter selection for {ds_name if ds_name else 'custom dataset'}...", flush=True, display=True)
+    log(f"Running hyperparameter selection for {uea_dataset if uea_dataset else 'custom dataset'}...", flush=True, display=True)
 
     kfold = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    if ds_name == "StandWalkJump":
+    if uea_dataset == "StandWalkJump":
         kfold = StratifiedKFold(n_splits=4, shuffle=True, random_state=42)
 
     for reception in [0.25, 0.5, 0.75, 0.9]:
