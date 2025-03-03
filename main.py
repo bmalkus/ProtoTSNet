@@ -90,6 +90,82 @@ def pm_dataset(use_pm=True):
     return train_ds, test_ds
 
 
+DATA_PATH = Path("/mnt/z/dane/fin-ta/")
+INTERVAL = "1d"
+
+
+def read_ohlc_with_ta_and_trend(symbol):
+    full_data_path = DATA_PATH / INTERVAL
+    ohlc_df = pd.read_parquet(full_data_path / f"{symbol}.parquet")
+    ta_df = pd.read_parquet(full_data_path / f"{symbol}-ta.parquet")
+    trend_df = pd.read_parquet(full_data_path / f"{symbol}-trends.parquet")
+    return ohlc_df.join(ta_df).join(trend_df)
+
+
+def formation_end_idxs(df, formation):
+    return np.nonzero((df[formation].iloc[:, [-1]] != 0).any(axis=1))[0]
+
+
+def get_slice_ending_with(series, end_idx, length):
+    return series.iloc[max(0, end_idx - length + 1) : end_idx + 1].copy()
+
+
+def ta_dataset():
+    symbols = [f.stem[:-3] for f in (DATA_PATH / INTERVAL).glob("*-ta.parquet")]
+    ticker_dfs = {}
+    for symbol in symbols:
+        ticker_dfs[symbol] = read_ohlc_with_ta_and_trend(symbol)
+    c0 = []
+    for instr in symbols:
+        df = ticker_dfs[instr]
+        idxs = formation_end_idxs(df, "UPTREND")
+        for idx in idxs:
+            slice = get_slice_ending_with(df[(instr, "Close")], idx, 50)
+            if slice.shape[0] < 50:
+                continue
+            c0.append(slice)
+    X_0 = np.stack(c0)
+
+    c1 = []
+    for instr in symbols:
+        df = ticker_dfs[instr]
+        idxs = formation_end_idxs(df, "HS")
+        for idx in idxs:
+            slice = get_slice_ending_with(df[(instr, "Close")], idx + 2, 50)
+            if slice.shape[0] < 50:
+                continue
+            c1.append(slice)
+    X_1 = np.stack(c1)
+
+    # sample equal number of samples from each class
+    smaller_class = min(X_0.shape[0], X_1.shape[0])
+    X_0 = X_0[:smaller_class]
+    X_1 = X_1[:smaller_class]
+
+    X = np.concatenate([X_0, X_1])
+    y = np.concatenate([np.zeros(X_0.shape[0]), np.ones(X_1.shape[0])])
+
+    # permute data
+    np.random.seed(42)
+    perm = np.random.permutation(X.shape[0])
+    X = X[perm]
+    y = y[perm]
+
+    # normalize each series separately
+    X -= X.mean(axis=1)[:, np.newaxis]
+    X /= X.std(axis=1)[:, np.newaxis]
+
+    X = X.astype(np.float32).reshape(X.shape[0], 1, X.shape[1])
+    y = np.array(y).astype(np.int64)
+    X_train = X[: int(0.7 * X.shape[0])]
+    y_train = y[: int(0.7 * X.shape[0])]
+    X_test = X[int(0.7 * X.shape[0]) :]
+    y_test = y[int(0.7 * X.shape[0]) :]
+    train_ds = TSCDataset(X_train, y_train)
+    test_ds = TSCDataset(X_test, y_test)
+    return train_ds, test_ds
+
+
 def artificial_dataset():
     log(f"Preparing artificial dataset...", flush=True, display=True)
     train_art = ArtificialProtos(1000, feature_noise_power=0.1, randomize_right_side=True)
@@ -185,7 +261,7 @@ elif args.artificial_dataset:
     train_ds, test_ds = artificial_dataset()
 else:
     log(f"Running on custom dataset, loading...", flush=True, display=True)
-    train_ds, test_ds = pm_dataset(use_pm=False)
+    train_ds, test_ds = ta_dataset()
 
 if not skip_scaling:
     log(f"Scaling dataset...", flush=True, display=True)
