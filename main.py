@@ -234,6 +234,13 @@ parser.add_argument("--sep_coeff", type=float, help="Separation coefficient", re
 parser.add_argument("--param_selection", action="store_true", help="Run hyperparameter selection", required=False, default=False)
 parser.add_argument("--verbose", action="store_true", help="Verbose output", required=False, default=False)
 parser.add_argument("--skip_scaling", action="store_true", help="Skip scaling of the dataset", required=False, default=False)
+parser.add_argument(
+    "--penalize_class_0",
+    action="store_true",
+    help="Penalize class 0 positive connections in the last layer - if class 0 contains no prototypes, we encourage other classes to have more meaningful ones",
+    required=False,
+    default=False,
+)
 args = parser.parse_args()
 
 uea_dataset = args.uea_dataset
@@ -312,6 +319,9 @@ epochs = args.epochs
 
 # how much each element contributes to the loss, l1 is last layer l1 regularization, l1_addon is regularization of feature importance layer
 coeffs = ProtoTSCoeffs(crs_ent=1, l1_addon=args.l1_addon_coeff, l1=args.l1_coeff, clst=args.clst_coeff, sep=args.sep_coeff)
+
+# whether to penalize class 0 connections - if class 0 contains no prototypes, we encourage other classes to have meaningful prototypes
+penalize_class_0 = args.penalize_class_0
 
 # retrieve details of the dataset
 num_classes = len(np.unique(train_ds.y))
@@ -400,6 +410,7 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
             coeffs=coeffs,
             lr_sched_setup=lr_sched_setup,
             log=log,
+            penalize_class_0=args.penalize_class_0,
             add_params_to_log={
                 "encoder_pretraining": encoder_pretraining,
                 "permuting_encoder": permuting_encoder,

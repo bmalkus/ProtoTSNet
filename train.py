@@ -38,7 +38,8 @@ def train_prototsnet(
     custom_hooks=None,
     stop_condition=None,
     log=None,
-    add_params_to_log={}
+    add_params_to_log={},
+    penalize_class_0=False
 ):
     save_files = True if experiment_dir is not None else False
     logclose = lambda: None
@@ -85,6 +86,7 @@ def train_prototsnet(
             "num_last_layer_epochs": num_last_layer_epochs,
             "epochs": num_epochs,
             "learning_rates": str(learning_rates),
+            "penalize_class_0": penalize_class_0,
             **add_params_to_log
         }
         with open(experiment_dir / "params.json", "w") as f:
@@ -112,6 +114,7 @@ def train_prototsnet(
                 get_verbose_logger()
             ] + ([] if custom_hooks is None else custom_hooks),
             log=log,
+            penalize_class_0=penalize_class_0,
         )
 
         if save_files:
@@ -244,6 +247,7 @@ class ProtoTSNetTrainer:
         stop_condition=None,
         hooks=None,
         log=print,
+        penalize_class_0=False,
     ):
         self.ptsnet = ptsnet
         self.device = device
@@ -284,6 +288,8 @@ class ProtoTSNetTrainer:
         self.run_type_str = None  # 'train', 'test', 'val'
 
         self.log = log
+
+        self.penalize_class_0 = penalize_class_0
 
         self._setup_optimizers(learning_rates, lr_sched_setup)
 
@@ -510,7 +516,11 @@ class ProtoTSNetTrainer:
                     avg_separation_cost = torch.mean(avg_separation_cost)
 
                     if use_l1_mask:
-                        l1_mask = 1 - torch.t(self.ptsnet.prototype_class_identity).to(self.device)
+                        identity = self.ptsnet.prototype_class_identity
+                        if self.penalize_class_0:
+                            identity[:, 0] = 0
+                        l1_mask = 1 - torch.t(identity).to(self.device)
+
                         l1 = (self.ptsnet.last_layer.weight * l1_mask).norm(p=1)
                     else:
                         l1 = self.ptsnet.last_layer.weight.norm(p=1)
