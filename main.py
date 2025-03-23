@@ -24,6 +24,9 @@ from train import EpochType, ProtoTSCoeffs, create_logger, train_prototsnet
 
 device = torch.device("cuda")
 
+# dataset in arff format should be put in the 'datasets/' directory (downloaded from timeseriesclassification.com)
+DATASETS_PATH = Path("datasets")
+
 
 # write your own function to load your dataset...
 def custom_dataset():
@@ -130,15 +133,23 @@ def ta_dataset():
     for instr in symbols:
         df = ticker_dfs[instr]
         idxs = formation_end_idxs(df, "HS")
+        idxs = np.concatenate([idxs, formation_end_idxs(df, "DT")])
         for idx in idxs:
-            slice = get_slice_ending_with(df[(instr, "Close")], idx + 2, 50)
+            slice = get_slice_ending_with(df[(instr, "Close")], idx + 1, 50)
             if slice.shape[0] < 50:
                 continue
             c1.append(slice)
     X_1 = np.stack(c1)
 
+    np.random.seed(42)
+    perm_0 = np.random.permutation(X_0.shape[0])
+    perm_1 = np.random.permutation(X_1.shape[0])
+    X_0 = X_0[perm_0]
+    X_1 = X_1[perm_1]
+
     # sample equal number of samples from each class
     smaller_class = min(X_0.shape[0], X_1.shape[0])
+    print(f'Smaller class is class {"monotonic" if X_0.shape[0] < X_1.shape[0] else "HS"}: {X_0.shape[0]} vs {X_1.shape[0]}')
     X_0 = X_0[:smaller_class]
     X_1 = X_1[:smaller_class]
 
@@ -197,9 +208,6 @@ def validate_proto_len(proto_len):
         parser.error("proto_len must be in range (0, 1]")
     return flen
 
-
-# dataset in arff format should be put in the 'datasets/' directory (downloaded from timeseriesclassification.com)
-DATASETS_PATH = Path("datasets")
 
 parser = argparse.ArgumentParser(description="Run experiment with specified dataset and experiment directory.")
 parser.add_argument("--uea_dataset", type=str, help="Use this if you want to run experiment on UEA dataset under datasets/ directory", required=False)
