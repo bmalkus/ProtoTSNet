@@ -230,14 +230,14 @@ parser.add_argument("--l1_addon_coeff", type=float, help="L1 regularization coef
 parser.add_argument("--l1_coeff", type=float, help="L1 regularization coefficient", required=False, default=1e-3)
 parser.add_argument('--l2_target_protos_coeff', type=float, help='L2 regularization coefficient for target protos', required=False, default=1e-3)
 parser.add_argument("--clst_coeff", type=float, help="Cluster separation coefficient", required=False, default=0.08)
-parser.add_argument("--sep_coeff", type=float, help="Separation coefficient", required=False, default=-0.008)
+parser.add_argument("--sep_coeff", type=float, help="Separation coefficient", required=False, default=-0.0001)
 parser.add_argument("--param_selection", action="store_true", help="Run hyperparameter selection", required=False, default=False)
 parser.add_argument("--verbose", action="store_true", help="Verbose output", required=False, default=False)
 parser.add_argument("--skip_scaling", action="store_true", help="Skip scaling of the dataset", required=False, default=False)
 parser.add_argument(
     "--penalize_class_0",
     action="store_true",
-    help="Penalize class 0 positive connections in the last layer - if class 0 contains no prototypes, we encourage other classes to have more meaningful ones",
+    help="Penalize class 0 positive connections in the last layer - if class 0 contains no prototypes, other classes are encouraged to have more meaningful ones",
     required=False,
     default=False,
 )
@@ -397,7 +397,12 @@ def setup_and_run_experiment(experiment_name, experiment_dir, log, train_ds, tes
             )
         else:
             autoencoder = RegularConvAutoencoder(
-                num_features=num_features, latent_features=proto_features, padding="same", do_max_pool=False, do_batch_norm=do_batch_norm
+                num_features=num_features,
+                latent_features=proto_features,
+                padding="same",
+                do_max_pool=False,
+                do_batch_norm=do_batch_norm,
+                num_conv_filters=4,
             )
         train_loader = torch.utils.data.DataLoader(train_ds, batch_size=train_batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(test_ds, batch_size=test_batch_size)

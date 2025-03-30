@@ -437,7 +437,7 @@ class TimeSeriesDrawer(QMainWindow):
             x_values = np.arange(len(data))
 
             # Set prototype length to match loaded data
-            self.length_spin.setValue(len(data) - 1)
+            self.length_spin.setValue(len(data))
             data_y_range = np.max(data) - np.min(data)
             self.y_max_spin.setValue(np.max(data) + data_y_range * 0.1)
             self.y_min_spin.setValue(np.min(data) - data_y_range * 0.1)
@@ -464,7 +464,7 @@ class TimeSeriesDrawer(QMainWindow):
             return
 
         # Just set new ranges without clearing
-        self.canvas.set_ranges(0, prototype_length, y_min, y_max)
+        self.canvas.set_ranges(0, prototype_length - 1, y_min, y_max)
         self.statusBar().showMessage("Settings applied")
 
     def clear_drawing(self):
