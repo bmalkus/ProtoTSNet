@@ -7,59 +7,82 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 
-def train_autoencoder(model, train_loader, test_loader, device, log=print, num_epochs=300):
-    calc_mse_loss = nn.MSELoss()
-    optimizer = optim.Adam(model.parameters(), lr=1e-3)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
-    model.to(device)
+class MultiEncoder(nn.Module):
+    def __init__(self, num_features, masks, padding, do_max_pool=False, do_batch_norm=True):
+        super(MultiEncoder, self).__init__()
+        self.return_indices = do_max_pool
+        self.num_branches = len(masks)
 
-    for epoch in range(1, num_epochs + 1):
-        # training
-        model.train()
+        layers = []
+        layers.append(
+            nn.Conv1d(
+                in_channels=num_features * self.num_branches,
+                out_channels=16 * self.num_branches,
+                kernel_size=7,
+                padding=padding,
+                groups=self.num_branches,
+            )
+        )
+        if do_batch_norm:
+            layers.append(nn.BatchNorm1d(16 * self.num_branches))
+        layers.append(nn.ReLU())
+        if do_max_pool:
+            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
+        layers.append(
+            nn.Conv1d(
+                in_channels=16 * self.num_branches,
+                out_channels=16 * self.num_branches,
+                kernel_size=5,
+                padding=padding,
+                groups=self.num_branches,
+            )
+        )
+        if do_batch_norm:
+            layers.append(nn.BatchNorm1d(16 * self.num_branches))
+        layers.append(nn.ReLU())
+        if do_max_pool:
+            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
+        layers.append(
+            nn.Conv1d(
+                in_channels=16 * self.num_branches,
+                out_channels=self.num_branches,
+                kernel_size=3,
+                padding=padding,
+                groups=self.num_branches,
+            )
+        )
+        if do_batch_norm:
+            layers.append(nn.BatchNorm1d(self.num_branches))
+        layers.append(nn.ReLU())
+        if do_max_pool:
+            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
 
-        to_print = f"epoch: {epoch:4d}/{num_epochs} "
+        self.encoder = nn.Sequential(*layers)
 
-        n_examples = 0
-        train_loss = 0
-        for data, _ in train_loader:
-            data = data.to(device)
+        self.masks = nn.Parameter(masks, requires_grad=False)
 
-            optimizer.zero_grad()
+    def forward(self, x):
+        # Apply masks
+        x = x.repeat(1, self.num_branches, 1)
+        x *= self.masks.view(1, -1).repeat(1, 1).unsqueeze(-1)
 
-            outputs, _ = model(data)
+        # Apply encoder
+        encoded = self.encoder(x)
 
-            loss = calc_mse_loss(outputs, data)
+        return encoded
 
-            loss.backward()
-            optimizer.step()
+    def set_return_indices(self, return_indices):
+        if return_indices == self.return_indices:
+            return
 
-            train_loss += loss.item() * data.size(0)
+        self.return_indices = return_indices
+        self.encoder[3 if self.do_batch_norm else 2] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[7 if self.do_batch_norm else 5] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
+        self.encoder[11 if self.do_batch_norm else 8] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
 
-            n_examples += data.size(0)
-
-        train_loss /= n_examples
-        scheduler.step()
-
-        # testing
-        if epoch % 10 == 0:
-            test_loss = 0
-            n_examples = 0
-            model.eval()
-            for data, _ in test_loader:
-                data = data.to(device)
-
-                with torch.no_grad():
-                    outputs, _ = model(data)
-
-                    loss = calc_mse_loss(outputs, data)
-
-                n_examples += data.size(0)
-                test_loss += loss.item() * data.size(0)
-
-            test_loss /= n_examples
-
-            to_print += f"mse loss: {test_loss:>5.4f}"
-            log(to_print, flush=True)
+    def set_requires_grad(self, requires_grad):
+        for param in self.encoder.parameters():
+            param.requires_grad = requires_grad
 
 
 class PermutingConvAutoencoder(nn.Module):
@@ -116,119 +139,6 @@ class PermutingConvAutoencoder(nn.Module):
         encoded = self.encoder(x)
         encoded = F.dropout(encoded, p=0.3, training=self.training)
         decoded = self.decoder(encoded)
-        return decoded, encoded
-
-
-class MultiEncoder(nn.Module):
-    def __init__(self, num_features, masks, padding, do_max_pool=False, do_batch_norm=True):
-        super(MultiEncoder, self).__init__()
-        self.return_indices = do_max_pool
-        self.num_branches = len(masks)
-
-        layers = []
-        layers.append(
-            nn.Conv1d(
-                in_channels=num_features * self.num_branches,
-                out_channels=16 * self.num_branches,
-                kernel_size=7,
-                padding=padding,
-                groups=self.num_branches,
-            )
-        )
-        if do_batch_norm:
-            layers.append(nn.BatchNorm1d(16 * self.num_branches))
-        layers.append(nn.ReLU())
-        if do_max_pool:
-            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(
-            nn.Conv1d(
-                in_channels=16 * self.num_branches, out_channels=16 * self.num_branches, kernel_size=5, padding=padding, groups=self.num_branches
-            )
-        )
-        if do_batch_norm:
-            layers.append(nn.BatchNorm1d(16 * self.num_branches))
-        layers.append(nn.ReLU())
-        if do_max_pool:
-            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-        layers.append(
-            nn.Conv1d(in_channels=16 * self.num_branches, out_channels=self.num_branches, kernel_size=3, padding=padding, groups=self.num_branches)
-        )
-        if do_batch_norm:
-            layers.append(nn.BatchNorm1d(self.num_branches))
-        layers.append(nn.ReLU())
-        if do_max_pool:
-            layers.append(nn.MaxPool1d(kernel_size=2, return_indices=do_max_pool))
-
-        self.encoder = nn.Sequential(*layers)
-
-        self.masks = nn.Parameter(masks, requires_grad=False)
-
-    def forward(self, x):
-        # Apply masks
-        x = x.repeat(1, self.num_branches, 1)
-        x *= self.masks.view(1, -1).repeat(1, 1).unsqueeze(-1)
-
-        # Apply encoder
-        encoded = self.encoder(x)
-
-        return encoded
-
-    def set_return_indices(self, return_indices):
-        if return_indices == self.return_indices:
-            return
-
-        self.return_indices = return_indices
-        self.encoder[3 if self.do_batch_norm else 2] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
-        self.encoder[7 if self.do_batch_norm else 5] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
-        self.encoder[11 if self.do_batch_norm else 8] = nn.MaxPool1d(kernel_size=2, return_indices=return_indices)
-
-    def set_requires_grad(self, requires_grad):
-        for param in self.encoder.parameters():
-            param.requires_grad = requires_grad
-
-
-class RegularConvAutoencoder(nn.Module):
-    def __init__(self, num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True, num_conv_filters=32):
-        super(RegularConvAutoencoder, self).__init__()
-        self.do_max_pool = do_max_pool
-        self.return_indices = do_max_pool
-        self.num_conv_filters = num_conv_filters
-
-        self.encoder = RegularConvEncoder(
-            num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters
-        )
-
-        layers = []
-        if do_max_pool:
-            layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(latent_features, num_conv_filters, kernel_size=3, padding=1 if padding == "same" else 0, output_padding=0))
-        layers.append(nn.ReLU())
-        if do_max_pool:
-            layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(num_conv_filters, num_conv_filters, kernel_size=5, padding=2 if padding == "same" else 0, output_padding=0))
-        layers.append(nn.ReLU())
-        if do_max_pool:
-            layers.append(nn.MaxUnpool1d(kernel_size=2))
-        layers.append(nn.ConvTranspose1d(num_conv_filters, num_features, kernel_size=7, padding=3 if padding == "same" else 0, output_padding=0))
-
-        self.decoder = nn.Sequential(*layers)
-
-    def forward(self, x):
-        if self.return_indices:
-            encoded, indices, sizes = self.encoder(x)
-            encoded = F.dropout(encoded, p=0.3, training=self.training)
-            indices = indices[::-1]
-            sizes = sizes[::-1]
-            decoded = encoded
-            for i, layer in enumerate(self.decoder):
-                if isinstance(layer, nn.MaxUnpool1d):
-                    decoded = layer(decoded, indices[i // 3], output_size=sizes[i // 3])
-                else:
-                    decoded = layer(decoded)
-        else:
-            encoded = self.encoder(x)
-            encoded = F.dropout(encoded, p=0.3, training=self.training)
-            decoded = self.decoder(encoded)
         return decoded, encoded
 
 
@@ -290,3 +200,236 @@ class RegularConvEncoder(nn.Module):
     def set_requires_grad(self, requires_grad):
         for param in self.encoder.parameters():
             param.requires_grad = requires_grad
+
+
+def build_decoder(num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True):
+    layers = []
+    if do_max_pool:
+        layers.append(nn.MaxUnpool1d(kernel_size=2))
+    layers.append(nn.ConvTranspose1d(latent_features, 32, kernel_size=3, padding=1 if padding == "same" else 0, output_padding=0))
+    layers.append(nn.ReLU())
+    if do_max_pool:
+        layers.append(nn.MaxUnpool1d(kernel_size=2))
+    layers.append(nn.ConvTranspose1d(32, 32, kernel_size=5, padding=2 if padding == "same" else 0, output_padding=0))
+    layers.append(nn.ReLU())
+    if do_max_pool:
+        layers.append(nn.MaxUnpool1d(kernel_size=2))
+    layers.append(nn.ConvTranspose1d(32, num_features, kernel_size=7, padding=3 if padding == "same" else 0, output_padding=0))
+
+    return nn.Sequential(*layers)
+
+
+class RegularConvAutoencoder(nn.Module):
+    def __init__(self, num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True, num_conv_filters=32):
+        super(RegularConvAutoencoder, self).__init__()
+        self.do_max_pool = do_max_pool
+        self.return_indices = do_max_pool
+        self.num_conv_filters = num_conv_filters
+
+        self.encoder = RegularConvEncoder(
+            num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters
+        )
+
+        self.decoder = build_decoder(num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm)
+
+    def forward(self, x):
+        if self.return_indices:
+            encoded, indices, sizes = self.encoder(x)
+            encoded = F.dropout(encoded, p=0.3, training=self.training)
+            indices = indices[::-1]
+            sizes = sizes[::-1]
+            decoded = encoded
+            for i, layer in enumerate(self.decoder):
+                if isinstance(layer, nn.MaxUnpool1d):
+                    decoded = layer(decoded, indices[i // 3], output_size=sizes[i // 3])
+                else:
+                    decoded = layer(decoded)
+        else:
+            encoded = self.encoder(x)
+            encoded = F.dropout(encoded, p=0.3, training=self.training)
+            decoded = self.decoder(encoded)
+        return decoded, encoded
+
+
+def train_autoencoder(model, train_loader, test_loader, device, log=print, num_epochs=300):
+    calc_mse_loss = nn.MSELoss()
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    model.to(device)
+
+    for epoch in range(1, num_epochs + 1):
+        # Training
+        model.train()
+
+        to_print = f"epoch: {epoch:4d}/{num_epochs} "
+
+        n_examples = 0
+        train_loss = 0
+        for data, _ in train_loader:
+            data = data.to(device)
+
+            optimizer.zero_grad()
+
+            outputs, _ = model(data)
+
+            loss = calc_mse_loss(outputs, data)
+
+            loss.backward()
+            optimizer.step()
+
+            train_loss += loss.item() * data.size(0)
+
+            n_examples += data.size(0)
+
+        train_loss /= n_examples
+        scheduler.step()
+
+        # Validation
+        if epoch % 10 == 0:
+            test_loss = 0
+            n_examples = 0
+            model.eval()
+            for data, _ in test_loader:
+                data = data.to(device)
+
+                with torch.no_grad():
+                    outputs, _ = model(data)
+
+                    loss = calc_mse_loss(outputs, data)
+
+                n_examples += data.size(0)
+                test_loss += loss.item() * data.size(0)
+
+            test_loss /= n_examples
+
+            to_print += f"mse loss: {test_loss:>5.4f}"
+            log(to_print, flush=True)
+
+
+class VariationalEncoder(nn.Module):
+    def __init__(self, num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True, num_conv_filters=32):
+        super(VariationalEncoder, self).__init__()
+
+        # Shared convolutional encoder
+        self.encoder_base = RegularConvEncoder(
+            num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters
+        )
+        
+        # Two heads: mean (mu) and log-variance (logvar)
+        self.mu_head = nn.Conv1d(latent_features, latent_features, kernel_size=1)
+        self.logvar_head = nn.Conv1d(latent_features, latent_features, kernel_size=1)
+        
+        self.encoder = nn.Sequential(
+            self.encoder_base,
+            self.mu_head,
+        )
+
+    def forward(self, x):
+        return self.encoder(x)
+    
+    def set_requires_grad(self, requires_grad):
+        for param in self.encoder.parameters():
+            param.requires_grad = requires_grad
+
+
+class VariationalConvAutoencoder(nn.Module):
+    def __init__(self, num_features, latent_features, padding, do_max_pool=False, do_batch_norm=True, num_conv_filters=32):
+        super(VariationalConvAutoencoder, self).__init__()
+        self.do_max_pool = do_max_pool
+        self.return_indices = do_max_pool
+        self.num_conv_filters = num_conv_filters
+
+        self.encoder = VariationalEncoder(
+            num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm, num_conv_filters=num_conv_filters
+        )
+
+        # Decoder (same as in RegularConvAutoencoder)
+        self.decoder = build_decoder(num_features, latent_features, padding, do_max_pool=do_max_pool, do_batch_norm=do_batch_norm)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def encode(self, x):
+        # Encode
+        if self.return_indices:
+            enc, indices, sizes = self.encoder.encoder_base(x)
+        else:
+            enc = self.encoder.encoder_base(x)
+
+        # Compute mu and logvar
+        mu = self.encoder.mu_head(enc)
+        logvar = self.encoder.logvar_head(enc)
+
+        if self.return_indices:
+            return mu, logvar, indices, sizes
+        return mu, logvar
+
+    def forward(self, x):
+        if self.return_indices:
+            mu, logvar, indices, sizes = self.encode(x)
+        else:
+            mu, logvar = self.encode(x)
+
+        # Sample latent vector
+        z = self.reparameterize(mu, logvar)
+
+        # Decode
+        if self.return_indices:
+            # unpool indices are reversed order from encoder
+            indices = indices[::-1]
+            sizes = sizes[::-1]
+            decoded = z
+            for i, layer in enumerate(self.decoder):
+                if isinstance(layer, nn.MaxUnpool1d):
+                    decoded = layer(decoded, indices[i // 3], output_size=sizes[i // 3])
+                else:
+                    decoded = layer(decoded)
+        else:
+            decoded = self.decoder(z)
+
+        return decoded, mu, logvar
+
+
+def train_vae(model, train_loader, test_loader, device, log=print, num_epochs=300, beta=1.0):
+    recon_loss_fn = nn.MSELoss(reduction='sum')
+    optimizer = optim.Adam(model.parameters(), lr=1e-3)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.1)
+    model.to(device)
+
+    for epoch in range(1, num_epochs + 1):
+        # Training
+        model.train()
+        train_loss = 0
+        for data, _ in train_loader:
+            data = data.to(device)
+            optimizer.zero_grad()
+
+            outputs, mu, logvar = model(data)
+            # Reconstruction loss
+            recon_loss = recon_loss_fn(outputs, data)
+            # KL divergence loss
+            kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+            # Total loss
+            loss = recon_loss + beta * kl_loss
+            loss.backward()
+            optimizer.step()
+            train_loss += loss.item()
+
+        train_loss /= len(train_loader.dataset)
+        scheduler.step()
+
+        # Validation
+        if epoch % 10 == 0:
+            model.eval()
+            test_loss = 0
+            with torch.no_grad():
+                for data, _ in test_loader:
+                    data = data.to(device)
+                    outputs, mu, logvar = model(data)
+                    recon_loss = recon_loss_fn(outputs, data)
+                    kl_loss = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+                    test_loss += (recon_loss + beta * kl_loss).item()
+            test_loss /= len(test_loader.dataset)
+            log(f"Epoch {epoch}/{num_epochs}, VAE loss: {test_loss:.4f}", flush=True)

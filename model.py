@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from autoencoder import MultiEncoder, RegularConvEncoder
-from receptive_field import compute_proto_layer_rf_info
+from receptive_field import ReceptiveFieldInfo, compute_proto_layer_rf_info
 
 ProtoLayerShape = namedtuple("ProtoLayerShape", ["num_prototypes", "latent_features", "latent_proto_len"])
 
@@ -67,6 +67,7 @@ class ProtoTSNet(nn.Module):
         self.proto_layer_rf_info = compute_proto_layer_rf_info(
             ts_len=self.ts_sample_len, latent_proto_len=self.proto_layer_shape.latent_proto_len, layers=self.features.encoder
         )
+        self.proto_layer_rf_info = ReceptiveFieldInfo(conv_ts_len=24, size=34, center=11.0, jump=1)
 
         self.prototype_vectors = nn.Parameter(torch.rand(self.proto_layer_shape), requires_grad=True)
 
