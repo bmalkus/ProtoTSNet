@@ -116,7 +116,7 @@ For UEA datasets, optimal hyperparameters are provided in `best_params.csv`. For
 
 - `--pretraining_epochs <num>`: Number of encoder pretraining epochs (default: 50)
 - `--epochs <num>`: Number of epochs to train (default: 200)
-- `--num_warm_epochs <num>`: Number of warm epochs (where only prototype layer and the 1x1 convolution layer before it are trained, default: 50)
+- `--warm_epochs <num>`: Number of warm epochs (where only prototype layer and the 1x1 convolution layer before it are trained, default: 50)
 - `--push_start_epoch <num>`: When to start pushing prototypes (prototypes are pushed every 30 epochs, it can be changed directly in `main.py`, default: 110)
 - `--last_layer_epochs <num>`: Number of epochs to train last layer (default: 40)
 

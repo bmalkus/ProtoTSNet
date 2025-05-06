@@ -186,7 +186,7 @@ def artificial_dataset():
     return train_ds, test_ds
 
 
-def experiment_setup(experiment_subpath):
+def experiment_setup(experiment_subpath, expert_protos_dir=None):
     # create subdirectory for the experiment and copy files to save state of the code
     experiment_dir = Path.cwd() / "experiments" / experiment_subpath
     os.makedirs(experiment_dir, exist_ok=True)
@@ -198,6 +198,8 @@ def experiment_setup(experiment_subpath):
     shutil.copy(src=Path.cwd() / "push.py", dst=experiment_dir)
     shutil.copy(src=Path.cwd() / "receptive_field.py", dst=experiment_dir)
     shutil.copy(src=Path.cwd() / "train.py", dst=experiment_dir)
+    if expert_protos_dir is not None:
+        shutil.copytree(src=expert_protos_dir, dst=experiment_dir / "target_protos", dirs_exist_ok=True)
 
     return experiment_dir
 

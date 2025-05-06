@@ -1,4 +1,4 @@
-target_protos/
+*target_protos*/
 experiments/
 datasets/
 *.csv
