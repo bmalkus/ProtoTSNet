@@ -17,9 +17,7 @@ from sklearn.preprocessing import StandardScaler
 from torcheval.metrics.functional import multiclass_confusion_matrix
 
 from artificial_protos_datasets import ArtificialProtos
-from autoencoder import (PermutingConvAutoencoder, RegularConvAutoencoder,
-                         VariationalConvAutoencoder, train_autoencoder,
-                         train_vae)
+from autoencoder import PermutingConvAutoencoder, RegularConvAutoencoder, VariationalConvAutoencoder, train_autoencoder, train_vae_with_anchors
 from datasets_utils import TSCDataset, ds_load, transform_ts_data
 from model import ProtoTSNet
 from train import EpochType, ProtoTSCoeffs, create_logger, train_prototsnet
@@ -261,6 +259,20 @@ if __name__ == "__main__":
         help="Beta used in VAE pretraining, only effective with VAE encoder and pretraining",
         required=False,
     )
+    parser.add_argument(
+        "--vae_pretrain_gamma",
+        type=float,
+        default=0.5,
+        help="Gamma used in VAE pretraining (for target anchoring), only effective with VAE encoder and pretraining",
+        required=False,
+    )
+    parser.add_argument(
+        "--vae_anchor_warmup_epochs",
+        type=int,
+        default=20,
+        help="Number of epochs to train VAE before target anchoring, only effective with VAE encoder and pretraining",
+        required=False,
+    )
     parser.add_argument("--no_encoder_pretraining", action="store_true", help="Do not pretrain encoder before ProtoTSNet training", required=False)
     parser.add_argument("--pretraining_epochs", type=int, help="Number of encoder pretraining epochs", required=False, default=50)
     parser.add_argument("--warm_epochs", type=int, help="Number of warm-up epochs", required=False, default=None)
@@ -293,6 +305,13 @@ if __name__ == "__main__":
     )
 
     parser.add_argument("--target_protos_dir", help="Directory with target protos", required=False, default=None)
+    parser.add_argument(
+        "--force_expert_protos",
+        action="store_true",
+        help="Force prototypes to be the expert ones, no prototype layer learning is done then",
+        required=False,
+        default=False,
+    )
 
     args = parser.parse_args()
 
@@ -400,6 +419,9 @@ if __name__ == "__main__":
     elif not reception and permuting_encoder:
         parser.error("Reception must be provided for non-UEA datasets when using permuting encoder")
 
+    if args.target_protos_dir is None and args.force_expert_protos:
+        parser.error("Target protos directory must be provided when using --force_expert_protos")
+
     # TODO: ugly hardcoded value
     rf_size = proto_len + 12
 
@@ -484,14 +506,17 @@ if __name__ == "__main__":
             if encoder_pretraining:
                 log(f"Training encoder", flush=True, display=True)
                 if vae_encoder:
-                    train_vae(
+                    train_vae_with_anchors(
                         autoencoder,
                         train_loader,
                         test_loader,
+                        target_protos,
                         device=device,
                         log=log,
                         num_epochs=args.pretraining_epochs,
                         beta=args.vae_pretrain_beta,
+                        gamma=args.vae_pretrain_gamma,
+                        anchor_warmup=args.vae_anchor_warmup_epochs,
                     )
                 else:
                     train_autoencoder(autoencoder, train_loader, test_loader, device=device, log=log, num_epochs=args.pretraining_epochs)
@@ -537,6 +562,7 @@ if __name__ == "__main__":
                 lr_sched_setup=lr_sched_setup,
                 log=log,
                 penalize_class_0=args.penalize_class_0,
+                force_expert_protos=args.force_expert_protos,
                 add_params_to_log={
                     "encoder_pretraining": encoder_pretraining,
                     "permuting_encoder": permuting_encoder,

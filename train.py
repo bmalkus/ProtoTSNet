@@ -39,7 +39,8 @@ def train_prototsnet(
     stop_condition=None,
     log=None,
     add_params_to_log={},
-    penalize_class_0=False
+    penalize_class_0=False,
+    force_expert_protos=False,
 ):
     save_files = True if experiment_dir is not None else False
     logclose = lambda: None
@@ -87,6 +88,7 @@ def train_prototsnet(
             "epochs": num_epochs,
             "learning_rates": str(learning_rates),
             "penalize_class_0": penalize_class_0,
+            "force_expert_protos": force_expert_protos,
             **add_params_to_log
         }
         with open(experiment_dir / "params.json", "w") as f:
@@ -112,9 +114,10 @@ def train_prototsnet(
             hooks=[
                 lambda t,_: t.dump_stats(experiment_dir / 'stats.json'),
                 get_verbose_logger()
-            ] + ([] if custom_hooks is None else custom_hooks),
+            ] + (custom_hooks or []),
             log=log,
             penalize_class_0=penalize_class_0,
+            force_expert_protos=force_expert_protos
         )
 
         if save_files:
@@ -250,6 +253,7 @@ class ProtoTSNetTrainer:
         hooks=None,
         log=print,
         penalize_class_0=False,
+        force_expert_protos=False,
     ):
         self.ptsnet = ptsnet
         self.device = device
@@ -292,6 +296,7 @@ class ProtoTSNetTrainer:
         self.log = log
 
         self.penalize_class_0 = penalize_class_0
+        self.force_expert_protos = force_expert_protos
 
         self._setup_optimizers(learning_rates, lr_sched_setup)
 
@@ -534,7 +539,7 @@ class ProtoTSNetTrainer:
                     cluster_cost = torch.mean(min_distance)
                     l1 = self.ptsnet.last_layer.weight.norm(p=1)
 
-                if self.ptsnet.has_target_protos:
+                if self.ptsnet.has_target_protos and not self.force_expert_protos:
                     conv_target_protos = self.ptsnet.conv_features(self.ptsnet.target_protos_vectors)[:, :, 6:-6]
                     dist_to_target = torch.sqrt(torch.sum((conv_target_protos - self.ptsnet.prototype_vectors) ** 2, dim=(1, 2)))
                     masked_dist_to_target_sum = (dist_to_target * self.ptsnet.target_protos_mask).sum()
@@ -579,6 +584,11 @@ class ProtoTSNetTrainer:
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
+                
+                if self.ptsnet.has_target_protos and self.force_expert_protos:
+                    # if force_expert_protos is True, we just use encoded target_protos_vectors as prototypes
+                    conv_target_protos = self.ptsnet.conv_features(self.ptsnet.target_protos_vectors)[:, :, 6:-6]
+                    self.ptsnet.prototype_vectors[self.ptsnet.target_protos_mask == 1] = conv_target_protos[self.ptsnet.target_protos_mask == 1]
 
             del input
             del target
