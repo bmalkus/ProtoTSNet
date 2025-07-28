@@ -150,9 +150,9 @@ The codebase consists of the following files:
 - `model.py`: Implementation of the ProtoTSNet architecture.
 - `push.py`: Implementation of the prototype push phase, where prototypes are pushed onto actual sub-sequences from the training set.
 - `train.py`: Training infrastructure, including:
- - `ProtoTSNetTrainer` class managing the training process,
- - statistics gathering and logging,
- - training phases coordination.
+  - `ProtoTSNetTrainer` class managing the training process,
+  - statistics gathering and logging,
+  - training phases coordination.
 - `datasets_utils.py`: Dataset handling utilities for loading and preprocessing time series data.
 - `receptive_field.py`: Utilities for handling prototypes' receptive fields in the input space.
 - `artificial_protos_datasets.py`: Implementation of the artificial dataset used in experiments described in the paper.
